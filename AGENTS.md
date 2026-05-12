@@ -93,6 +93,14 @@ v2 makes the tool a real regression suite. v1 is just a viewer.
 
 ---
 
+## v3a: auto-stub test mode (next ship)
+
+**Status: designed, not implemented. Full implementation spec in [`docs/v3a-test-mode.md`](docs/v3a-test-mode.md).**
+
+The "what would today's workflow do with this old input?" use case, without instrumenting the workflow or building a full simulator. We transform the workflow JSON (replace write nodes with Set stubs, keep reads/logic real), push as a parallel `(test) ...` workflow to n8n, fire its test webhook, and render the result the same way the existing run flow does.
+
+Trades pure simulation purity for shipping speed (~1–2 days vs ~1+ week for v3) and reuses n8n's actual engine. v3-true-simulator stays on the roadmap if auto-stub limitations bite.
+
 ## v3: local simulation (the moat)
 
 v1 + v2 still rely on n8n actually executing the workflow. That means real side effects, every run. Acceptable when workflows have test gates, but a real limitation otherwise.
