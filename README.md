@@ -30,7 +30,33 @@ Click any node to load it. Hit Run. See the per-node green/red verdict on one sc
 
 **v1:** n8n runs the workflow for real — we fetch the execution data and render it clearly. (Requires a Webhook trigger node and a test-mode gate in your workflow for safety, same pattern you'd use today.)
 
+**v3a (now): auto-stub test mode.** Flip the Test mode toggle in the header and Run sends your input through a transformed copy of the workflow — every side-effect node (HTTP writes, Gmail/Slack sends, HubSpot writes, …) is replaced by a Set stub returning a plausible response. Reads, IF/Switch, Code, and respond-to-webhook stay real. No emails sent, no HubSpot rows created, no Slack pings — but your routing logic and expressions still execute against real upstream data. See [Test mode](#test-mode) below.
+
 **v3 (future):** local simulation + record/replay, so workflows without test gates can be tested safely.
+
+## Test mode
+
+1. Load a workflow.
+2. Click **Test mode** in the header — the canvas gets a pink TEST badge so you can't forget.
+3. Paste or pick an input (the past-execution picker is great here — replay any historical input against today's workflow).
+4. Hit **▶ Run (test)**.
+
+What happens under the hood:
+
+- The workflow JSON is fetched from n8n.
+- Every node outside the allowlist (triggers, IF/Switch, Filter, Merge, Code, Set, dateTime, respond-to-webhook, HTTP GET, HubSpot search/get/getAll, …) is replaced with a Set node that outputs a plausible JSON stub. HubSpot notes/contacts/associations get URL-aware shapes so downstream `$('Create Call Note').item.json.id` references still resolve.
+- The webhook path is suffixed `-test` (e.g. `synthflow-call-ended` → `synthflow-call-ended-test`).
+- The mirror is pushed to n8n as `(test) <your workflow name>` and activated. Subsequent runs reuse the same mirror.
+- The tool fires the test webhook, polls the execution, and renders the result the same way a normal run does. Verdict shows `Succeeded (test)` / `Error (test)`.
+
+Tear the mirror down anytime: **Settings → Test mode → Delete test mirror**.
+
+Caveats:
+
+- Only Webhook-triggered workflows are supported. Cron/manual triggers surface a friendly error.
+- Each tested workflow accumulates one mirror. On n8n cloud's 10-workflow free tier, that halves capacity — delete mirrors you're done with from Settings.
+- Stubs are JSON shapes computed at transform time. If a downstream node consumes a field your stub doesn't include, add it to `lib/test-mode/stubs.ts`.
+- `executeWorkflow` calls to subworkflows are stubbed (treated as a side effect). Recursive transformation is a v2 problem.
 
 ## Stack
 
