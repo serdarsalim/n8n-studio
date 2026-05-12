@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>n8n-flow-tester — Mock</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --panel: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+    --green: #16a34a;
+    --red: #dc2626;
+    --amber-bg: #fef3c7;
+    --amber-border: #fcd34d;
+    --amber-text: #b45309;
+    --red-pill-bg: #fee2e2;
+    --red-pill-text: #b91c1c;
+    --green-pill-bg: #dcfce7;
+    --green-pill-text: #166534;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr 1fr;
+    gap: 16px;
+    padding: 16px 24px;
+    height: calc(100vh - 65px);
+    overflow: hidden;
+  }
+  .col {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .col-head {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .col-body {
+    padding: 16px;
+    overflow: auto;
+    flex: 1;
+  }
+
+  /* Column 1 — JSON input */
+  .test-banner {
+    background: var(--amber-bg);
+    border: 1px solid var(--amber-border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+  }
+  .test-banner-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .test-banner-title {
+    color: var(--amber-text);
+    font-weight: 600;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .pill {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .pill-on { background: #fed7aa; color: #9a3412; }
+  .pill-won-t { background: var(--red-pill-bg); color: var(--red-pill-text); }
+  .pill-will { background: var(--green-pill-bg); color: var(--green-pill-text); }
+  .toggle {
+    width: 36px;
+    height: 20px;
+    background: #f97316;
+    border-radius: 999px;
+    position: relative;
+    cursor: pointer;
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+  }
+  .test-input {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+  .test-input input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--amber-border);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 13px;
+    background: white;
+  }
+  .test-banner-help {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .json-editor {
+    width: 100%;
+    min-height: 380px;
+    padding: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fcfcfb;
+    resize: vertical;
+  }
+
+  /* Column 2 — Workflow graph */
+  .node {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    background: white;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+  }
+  .node-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: #f5f5f4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .node-name {
+    flex: 1;
+    font-weight: 500;
+    font-size: 13px;
+  }
+  .node-type {
+    color: var(--muted);
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+  .node.branch {
+    border-left: 3px solid var(--amber-border);
+  }
+  .node.fail {
+    opacity: 0.5;
+    border-style: dashed;
+  }
+  .node-connector {
+    width: 1px;
+    height: 12px;
+    background: var(--border);
+    margin: -4px auto 4px;
+  }
+  .branch-label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 12px 0 6px 12px;
+  }
+
+  /* Column 3 — Verdict */
+  .verdict-section { margin-bottom: 20px; }
+  .verdict-title {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .verdict-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 12px;
+    background: #fafaf9;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    font-size: 13px;
+  }
+  .verdict-row + .verdict-row { margin-top: 4px; }
+  .verdict-left {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    flex: 1;
+    word-break: break-word;
+  }
+  .verdict-arrow { color: var(--muted); margin: 0 4px; }
+  .verdict-right {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .verdict-icon {
+    font-weight: bold;
+    font-size: 14px;
+    width: 16px;
+    text-align: center;
+  }
+  .check { color: var(--green); }
+  .x { color: var(--red); }
+  .group-header {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 14px 0 6px;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>n8n-flow-tester <span style="font-weight:400;color:var(--muted);">— mock</span></h1>
+      <div class="sub">Synthflow → HubSpot Sync · execution #44996</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <span class="pill pill-won-t">WON'T FIRE — Send Booking Email</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Column 1: JSON Input -->
+    <div class="col">
+      <div class="col-head">
+        <span>Input · webhook payload</span>
+        <span class="pill pill-on" style="background:#e7e5e4;color:var(--muted);">EDITABLE</span>
+      </div>
+      <div class="col-body">
+        <div class="test-banner">
+          <div class="test-banner-top">
+            <div class="test-banner-title">⚠️ Test mode <span class="pill pill-on">ON</span></div>
+            <div class="toggle"></div>
+          </div>
+          <div class="test-input">
+            <span>Test contact (HubSpot ID)</span>
+            <input value="220858443063" />
+          </div>
+          <div class="test-banner-help">Only this contact is evaluated. Audience and conditions still apply — if the contact doesn't match, nothing fires.</div>
+        </div>
+        <textarea class="json-editor">{
+  "lead": {
+    "phone_number": "+601125024336"
+  },
+  "call": {
+    "recording_url": "https://storage.googleapis.com/...mp4",
+    "duration": 184
+  },
+  "executed_actions": {
+    "extract_info_qualified": {
+      "return_value": { "qualified": false }
+    },
+    "extract_info_uyruk": {
+      "return_value": { "uyruk": "Kenyan" }
+    },
+    "extract_info_living_expenses": {
+      "return_value": { "living_expenses": "Yes" }
+    }
+  },
+  "analysis": {
+    "call_summary_feedback": "Qualified Jack for masters in Ireland..."
+  }
+}</textarea>
+      </div>
+    </div>
+
+    <!-- Column 2: Workflow Graph -->
+    <div class="col">
+      <div class="col-head">Workflow · 19 nodes</div>
+      <div class="col-body">
+        <div class="node">
+          <div class="node-icon">📥</div>
+          <div>
+            <div class="node-name">Receive Synthflow Payload</div>
+            <div class="node-type">webhook</div>
+          </div>
+        </div>
+        <div class="node-connector"></div>
+        <div class="node">
+          <div class="node-icon">🔐</div>
+          <div>
+            <div class="node-name">Verify Shared Token</div>
+            <div class="node-type">if · v2.2</div>
+          </div>
+        </div>
+        <div class="node-connector"></div>
+        <div class="node">
+          <div class="node-icon">🔍</div>
+          <div>
+            <div class="node-name">Search Contact by Phone</div>
+            <div class="node-type">hubspot</div>
+          </div>
+        </div>
+        <div class="node-connector"></div>
+        <div class="node">
+          <div class="node-icon">🎯</div>
+          <div>
+            <div class="node-name">Select Contact Match</div>
+            <div class="node-type">code</div>
+          </div>
+        </div>
+        <div class="node-connector"></div>
+        <div class="node branch">
+          <div class="node-icon">❓</div>
+          <div>
+            <div class="node-name">Has Properties?</div>
+            <div class="node-type">if · v2.2 · <span style="color:var(--green);">TRUE</span></div>
+          </div>
+        </div>
+
+        <div class="branch-label">→ True branch</div>
+        <div class="node" style="margin-left:12px;">
+          <div class="node-icon">📝</div>
+          <div>
+            <div class="node-name">Update Contact Properties</div>
+            <div class="node-type">http · PATCH</div>
+          </div>
+        </div>
+
+        <div class="branch-label">↓ Continues to Create Call Note</div>
+        <div class="node">
+          <div class="node-icon">📋</div>
+          <div>
+            <div class="node-name">Create Call Note</div>
+            <div class="node-type">http · POST</div>
+          </div>
+        </div>
+        <div class="node-connector"></div>
+        <div class="node">
+          <div class="node-icon">🔗</div>
+          <div>
+            <div class="node-name">Associate Note + Variables Note</div>
+            <div class="node-type">http · ×4</div>
+          </div>
+        </div>
+        <div class="node-connector"></div>
+        <div class="node branch">
+          <div class="node-icon">❓</div>
+          <div>
+            <div class="node-name">Qualified?</div>
+            <div class="node-type">if · v2.2 · <span style="color:var(--red);">FALSE</span></div>
+          </div>
+        </div>
+
+        <div class="branch-label">↳ True branch (skipped)</div>
+        <div class="node fail" style="margin-left:12px;">
+          <div class="node-icon">💰</div>
+          <div>
+            <div class="node-name">Update Possibility (Qualified)</div>
+            <div class="node-type">→ Send Booking Email</div>
+          </div>
+        </div>
+
+        <div class="branch-label">↳ False branch (active)</div>
+        <div class="node branch" style="margin-left:12px;">
+          <div class="node-icon">❓</div>
+          <div>
+            <div class="node-name">Budget Starts With No?</div>
+            <div class="node-type">if · v2.2 · <span style="color:var(--red);">FALSE</span></div>
+          </div>
+        </div>
+        <div class="node fail" style="margin-left:24px;">
+          <div class="node-icon">📧</div>
+          <div>
+            <div class="node-name">Send Budget Email + Update Possibility (No Budget)</div>
+            <div class="node-type">won't fire</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Column 3: Verdict -->
+    <div class="col">
+      <div class="col-head">
+        <span>Verdict · per-condition</span>
+        <span class="pill pill-won-t">WON'T FIRE</span>
+      </div>
+      <div class="col-body">
+        <div class="verdict-section">
+          <div class="verdict-title">Pre-checks</div>
+          <div class="verdict-row">
+            <span class="verdict-left">webhook token valid</span>
+            <span class="verdict-arrow">↔</span>
+            <span class="verdict-right">sf-n8n-sync...</span>
+            <span class="verdict-icon check">✓</span>
+          </div>
+          <div class="verdict-row">
+            <span class="verdict-left">contact match (by phone)</span>
+            <span class="verdict-arrow">↔</span>
+            <span class="verdict-right">found 1</span>
+            <span class="verdict-icon check">✓</span>
+          </div>
+          <div class="verdict-row">
+            <span class="verdict-left">lead_owner_id</span>
+            <span class="verdict-arrow">↔</span>
+            <span class="verdict-right">87319710</span>
+            <span class="verdict-icon check">✓</span>
+          </div>
+          <div class="verdict-row">
+            <span class="verdict-left">properties to update</span>
+            <span class="verdict-arrow">↔</span>
+            <span class="verdict-right">3 fields</span>
+            <span class="verdict-icon check">✓</span>
+          </div>
+        </div>
+
+        <div class="verdict-section">
+          <div class="verdict-title">Group 1 · Qualified? (AND)</div>
+          <div class="verdict-row">
+            <span class="verdict-left">extract_info_qualified.qualified == true</span>
+            <span class="verdict-arrow">↔</span>
+            <span class="verdict-right">false</span>
+            <span class="verdict-icon x">✗</span>
+          </div>
+          <div class="verdict-row">
+            <span class="verdict-left">hubspot_owner_id == "87319710"</span>
+            <span class="verdict-arrow">↔</span>
+            <span class="verdict-right">87319710</span>
+            <span class="verdict-icon check">✓</span>
+          </div>
+        </div>
+
+        <div class="verdict-section">
+          <div class="verdict-title">Group 2 · Budget Starts With No? (OR)</div>
+          <div class="verdict-row">
+            <span class="verdict-left">do_you_have_a_budget_to_cover_your_living_expenses startsWith("no")</span>
+            <span class="verdict-arrow">↔</span>
+            <span class="verdict-right">"yes_..."</span>
+            <span class="verdict-icon x">✗</span>
+          </div>
+          <div class="verdict-row">
+            <span class="verdict-left">do_you_have_a_budget_to_pay_university_fees_ startsWith("no")</span>
+            <span class="verdict-arrow">↔</span>
+            <span class="verdict-right">"yes_..."</span>
+            <span class="verdict-icon x">✗</span>
+          </div>
+        </div>
+
+        <div class="verdict-section">
+          <div class="verdict-title">Outcome</div>
+          <div class="verdict-row" style="background:var(--red-pill-bg);">
+            <span class="verdict-left" style="color:var(--red-pill-text);font-weight:600;">No branch fires</span>
+            <span class="verdict-icon x">✗</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:8px;padding:0 4px;">
+            Lead is not qualified AND not flagged as no-budget. Possibility stays unset. Try flipping <code>extract_info_qualified.qualified</code> to <code>true</code> in column 1 to test the qualified path.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

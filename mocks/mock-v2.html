@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>n8n-flow-tester — Mock v2</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --panel: #ffffff;
+    --border: #e7e5e4;
+    --border-strong: #d6d3d1;
+    --text: #1c1917;
+    --muted: #78716c;
+    --muted-2: #a8a29e;
+    --green: #16a34a;
+    --red: #dc2626;
+    --blue: #2563eb;
+    --blue-bg: #eff6ff;
+    --red-pill-bg: #fee2e2;
+    --red-pill-text: #b91c1c;
+    --green-pill-bg: #dcfce7;
+    --green-pill-text: #166534;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  header {
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+  header .crumb { color: var(--muted); font-size: 13px; }
+  header select {
+    font-size: 13px;
+    padding: 4px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    background: white;
+  }
+  .header-right { display: flex; gap: 8px; align-items: center; }
+  .btn {
+    font-size: 13px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    background: white;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .btn-primary { background: var(--text); color: white; border-color: var(--text); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 16px 24px;
+    height: calc(100vh - 60px);
+    overflow: hidden;
+  }
+  .col {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .col-head {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .col-body { padding: 16px; overflow: auto; flex: 1; }
+
+  /* Status rail under header */
+  .rail {
+    display: flex;
+    gap: 4px;
+    padding: 8px 24px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .rail-node {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-family: var(--mono);
+    border: 1px solid var(--border);
+    background: var(--bg);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .rail-node.ok { border-color: #bbf7d0; background: #f0fdf4; color: var(--green); }
+  .rail-node.bad { border-color: #fecaca; background: #fef2f2; color: var(--red); }
+  .rail-node.skip { opacity: 0.5; border-style: dashed; }
+  .rail-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* Column 1 — Input */
+  .source-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .source-strip a { color: var(--blue); text-decoration: none; cursor: pointer; }
+  .json-editor {
+    width: 100%;
+    height: calc(100% - 32px);
+    min-height: 400px;
+    padding: 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.65;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fcfcfb;
+    resize: none;
+    outline: none;
+  }
+  .json-editor:focus { border-color: var(--blue); }
+  .field-highlight {
+    background: #fef9c3;
+    border-radius: 2px;
+    padding: 0 2px;
+  }
+
+  /* Column 2 — Verdict */
+  .verdict-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: var(--red-pill-bg);
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    margin-bottom: 16px;
+  }
+  .verdict-banner.ok { background: var(--green-pill-bg); border-color: #bbf7d0; }
+  .verdict-headline {
+    font-weight: 600;
+    color: var(--red-pill-text);
+    font-size: 14px;
+  }
+  .verdict-banner.ok .verdict-headline { color: var(--green-pill-text); }
+  .verdict-sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .group {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #fafaf9;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .group-title { font-weight: 600; }
+  .group-meta { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+  .group-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .badge-pass { background: var(--green-pill-bg); color: var(--green-pill-text); }
+  .badge-fail { background: var(--red-pill-bg); color: var(--red-pill-text); }
+  .badge-info { background: #e0e7ff; color: #3730a3; }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .row:last-child { border-bottom: none; }
+  .row-left {
+    font-family: var(--mono);
+    font-size: 12px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .row-arrow { color: var(--muted-2); }
+  .row-right {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .row-icon { width: 14px; text-align: center; font-weight: bold; font-size: 13px; }
+  .check { color: var(--green); }
+  .x { color: var(--red); }
+
+  .flip-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--blue-bg);
+    border-top: 1px dashed #bfdbfe;
+    font-size: 12px;
+    color: var(--blue);
+  }
+  .flip-row button {
+    background: white;
+    border: 1px solid #bfdbfe;
+    color: var(--blue);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-weight: 500;
+  }
+  .flip-row button:hover { background: var(--blue); color: white; }
+</style>
+</head>
+<body>
+  <header>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <h1>n8n-flow-tester</h1>
+      <span class="crumb">›</span>
+      <select>
+        <option>Synthflow → HubSpot Sync</option>
+        <option>Partner Portal Emails</option>
+        <option>Education State PDF Generator</option>
+      </select>
+      <span class="crumb">· execution #44996</span>
+    </div>
+    <div class="header-right">
+      <button class="btn">Save fixture</button>
+      <button class="btn btn-primary">▶ Run</button>
+    </div>
+  </header>
+
+  <!-- Status rail replaces the old middle column -->
+  <div class="rail">
+    <div class="rail-node ok"><span class="rail-dot"></span>Receive Payload</div>
+    <div class="rail-node ok"><span class="rail-dot"></span>Verify Token</div>
+    <div class="rail-node ok"><span class="rail-dot"></span>Search Contact</div>
+    <div class="rail-node ok"><span class="rail-dot"></span>Select Match</div>
+    <div class="rail-node ok"><span class="rail-dot"></span>Has Properties? <em style="font-style:normal;color:var(--muted);">T</em></div>
+    <div class="rail-node ok"><span class="rail-dot"></span>Update Properties</div>
+    <div class="rail-node ok"><span class="rail-dot"></span>Create Note</div>
+    <div class="rail-node bad"><span class="rail-dot"></span>Qualified? <em style="font-style:normal;color:var(--muted);">F</em></div>
+    <div class="rail-node skip">Send Booking Email</div>
+    <div class="rail-node bad"><span class="rail-dot"></span>Budget Starts No? <em style="font-style:normal;color:var(--muted);">F</em></div>
+    <div class="rail-node skip">Send Budget Email</div>
+  </div>
+
+  <div class="grid">
+    <!-- Column 1: Input -->
+    <div class="col">
+      <div class="col-head">
+        <span>Input · webhook payload</span>
+        <span style="font-size:11px;color:var(--muted);font-family:var(--mono);">application/json</span>
+      </div>
+      <div class="col-body">
+        <div class="source-strip">
+          <span>Source: <a>execution #44996</a> · loaded 2m ago</span>
+          <span><a>Reset</a> · <a>Load fixture…</a></span>
+        </div>
+<textarea class="json-editor">{
+  "lead": {
+    "phone_number": "+601125024336"
+  },
+  "call": {
+    "recording_url": "https://storage.googleapis.com/...mp4",
+    "duration": 184
+  },
+  "executed_actions": {
+    "extract_info_qualified": {
+      "return_value": { "qualified": false }
+    },
+    "extract_info_uyruk": {
+      "return_value": { "uyruk": "Kenyan" }
+    },
+    "extract_info_living_expenses": {
+      "return_value": { "living_expenses": "Yes" }
+    },
+    "extract_info_budget": {
+      "return_value": {
+        "do_you_have_a_budget_to_pay_university_fees_": "yes_i_have_the_budget",
+        "do_you_have_a_budget_to_cover_your_living_expenses": "yes_i_have_10000_euro_or_more"
+      }
+    }
+  },
+  "analysis": {
+    "call_summary_feedback": "Qualified Jack for masters in Ireland..."
+  }
+}</textarea>
+      </div>
+    </div>
+
+    <!-- Column 2: Verdict -->
+    <div class="col">
+      <div class="col-head">
+        <span>Verdict</span>
+        <span style="font-size:11px;color:var(--muted);">auto-grouped from IF nodes</span>
+      </div>
+      <div class="col-body">
+        <div class="verdict-banner">
+          <div>
+            <div class="verdict-headline">Won't fire · no booking email, no budget email</div>
+            <div class="verdict-sub">Stops at <code>Qualified?</code> (false) and <code>Budget Starts With No?</code> (false). Possibility stays unset.</div>
+          </div>
+          <span class="group-badge badge-fail">No branch</span>
+        </div>
+
+        <!-- Pre-checks: derived as "everything before the first IF that gates output" -->
+        <div class="group">
+          <div class="group-head">
+            <div>
+              <span class="group-title">Pre-checks</span>
+              <span class="group-meta"> · 4 nodes before first gate</span>
+            </div>
+            <span class="group-badge badge-pass">All pass</span>
+          </div>
+          <div class="row">
+            <span class="row-left">Verify Shared Token · token == env</span>
+            <span class="row-arrow">↔</span>
+            <span class="row-right">sf-n8n-sync…</span>
+            <span class="row-icon check">✓</span>
+          </div>
+          <div class="row">
+            <span class="row-left">Search Contact · phone matches</span>
+            <span class="row-arrow">↔</span>
+            <span class="row-right">found 1</span>
+            <span class="row-icon check">✓</span>
+          </div>
+          <div class="row">
+            <span class="row-left">Has Properties? · properties.length &gt; 0</span>
+            <span class="row-arrow">↔</span>
+            <span class="row-right">3 fields</span>
+            <span class="row-icon check">✓</span>
+          </div>
+        </div>
+
+        <!-- IF node group, auto-titled from node name + combinator -->
+        <div class="group">
+          <div class="group-head">
+            <div>
+              <span class="group-title">Qualified?</span>
+              <span class="group-meta"> · IF · AND</span>
+            </div>
+            <span class="group-badge badge-fail">False</span>
+          </div>
+          <div class="row">
+            <span class="row-left">extract_info_qualified.qualified == true</span>
+            <span class="row-arrow">↔</span>
+            <span class="row-right">false</span>
+            <span class="row-icon x">✗</span>
+          </div>
+          <div class="row">
+            <span class="row-left">hubspot_owner_id == "87319710"</span>
+            <span class="row-arrow">↔</span>
+            <span class="row-right">87319710</span>
+            <span class="row-icon check">✓</span>
+          </div>
+          <div class="flip-row">
+            <span>To flip this branch to TRUE:</span>
+            <button>set qualified = true</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="group-head">
+            <div>
+              <span class="group-title">Budget Starts With No?</span>
+              <span class="group-meta"> · IF · OR</span>
+            </div>
+            <span class="group-badge badge-fail">False</span>
+          </div>
+          <div class="row">
+            <span class="row-left">do_you_have_a_budget_to_cover_your_living_expenses startsWith "no"</span>
+            <span class="row-arrow">↔</span>
+            <span class="row-right">"yes_i_have_…"</span>
+            <span class="row-icon x">✗</span>
+          </div>
+          <div class="row">
+            <span class="row-left">do_you_have_a_budget_to_pay_university_fees_ startsWith "no"</span>
+            <span class="row-arrow">↔</span>
+            <span class="row-right">"yes_i_have_…"</span>
+            <span class="row-icon x">✗</span>
+          </div>
+          <div class="flip-row">
+            <span>To flip this branch to TRUE (either condition):</span>
+            <button>set living_expenses = "no_…"</button>
+            <button>set university_fees = "no_…"</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="group-head">
+            <div>
+              <span class="group-title">Side effects observed</span>
+              <span class="group-meta"> · HTTP nodes that ran</span>
+            </div>
+            <span class="group-badge badge-info">3 calls</span>
+          </div>
+          <div class="row">
+            <span class="row-left">PATCH /crm/v3/objects/contacts/{id}</span>
+            <span class="row-arrow">↔</span>
+            <span class="row-right">200 · 142ms</span>
+            <span class="row-icon check">✓</span>
+          </div>
+          <div class="row">
+            <span class="row-left">POST /crm/v3/objects/notes</span>
+            <span class="row-arrow">↔</span>
+            <span class="row-right">201 · 88ms</span>
+            <span class="row-icon check">✓</span>
+          </div>
+          <div class="row">
+            <span class="row-left">PUT /crm/v4/objects/notes/.../associations</span>
+            <span class="row-arrow">↔</span>
+            <span class="row-right">204 · ×4</span>
+            <span class="row-icon check">✓</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

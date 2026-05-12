@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>n8n-flow-tester — Mock v3</title>
+<style>
+  :root {
+    --bg: #f4f4f2;
+    --canvas: #ecebe6;
+    --panel: #ffffff;
+    --border: #e0ddd8;
+    --border-strong: #c9c5be;
+    --text: #2d2a26;
+    --muted: #80796d;
+    --muted-2: #a8a29e;
+    --n8n: #ea4b71;
+    --n8n-dark: #c93d61;
+    --green: #16a34a;
+    --red: #dc2626;
+    --blue: #2563eb;
+    --blue-bg: #eff6ff;
+    --green-bg: #dcfce7;
+    --green-text: #166534;
+    --red-bg: #fee2e2;
+    --red-text: #b91c1c;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body.dark {
+    --bg: #18181b;
+    --canvas: #1f1f23;
+    --panel: #232328;
+    --border: #34343a;
+    --border-strong: #4a4a52;
+    --text: #f4f4f5;
+    --muted: #a1a1aa;
+    --muted-2: #71717a;
+  }
+  body.dark .canvas {
+    background:
+      radial-gradient(circle, #2e2e34 1px, transparent 1px) 0 0 / 18px 18px,
+      var(--canvas);
+  }
+  body.dark .hero-actions {
+    background:
+      radial-gradient(circle, #2e2e34 1px, transparent 1px) 0 0 / 18px 18px,
+      var(--canvas);
+  }
+  body.dark .json-editor,
+  body.dark .field-key,
+  body.dark .field-section,
+  body.dark .group-head,
+  body.dark .verdict-row,
+  body.dark .run-summary,
+  body.dark .node-check.open .node-check-row,
+  body.dark .node-check-detail { background: #1a1a1e; }
+  body.dark .node-check-row:hover { background: #1a1a1e; }
+  body.dark .option:hover { background: rgba(234,75,113,0.1); }
+  body.dark .option-icon { background: #1a1a1e; }
+  body.dark .btn { background: #2a2a2f; color: var(--text); }
+  body.dark .btn-primary { background: var(--n8n); color: white; }
+  body.dark .node::before,
+  body.dark .node::after { background: var(--canvas); border-color: var(--muted-2); }
+  body.dark .modal { background: var(--panel); }
+  body.dark .history-row { background: #1a1a1e; }
+  body.dark .flip-row { background: rgba(37,99,235,0.15); }
+  body.dark .history-name .fixture-tag { background: #2a2a3a; color: #a5b4fc; }
+  body.dark .field-section { background: #16161a; color: var(--muted); }
+  body.dark .history-row:hover { background: rgba(234,75,113,0.1); }
+  body.dark .form-input { background: #1a1a1e; }
+  body.dark .verdict-banner { background: rgba(220,38,38,0.15); border-color: rgba(220,38,38,0.3); }
+  body.dark .verdict-banner.ok { background: rgba(22,163,74,0.15); border-color: rgba(22,163,74,0.3); }
+  body.dark .badge-pass { background: rgba(22,163,74,0.2); color: #86efac; }
+  body.dark .badge-fail { background: rgba(220,38,38,0.2); color: #fca5a5; }
+  body.dark .badge-info { background: rgba(99,102,241,0.2); color: #a5b4fc; }
+  body.dark .field-val .str { color: #6ee7b7; }
+  body.dark .field-val .num { color: #93c5fd; }
+  body.dark .check-row, body.dark .row { border-color: var(--border); }
+  body.dark .modal-foot { border-color: var(--border); }
+  body.dark .json-editor { background: #1a1a1e; color: var(--text); border-color: var(--border); }
+  body.dark header, body.dark .detail { background: var(--panel); }
+  body.dark .node-check { background: var(--panel); border-color: var(--border); }
+  body.dark .node-check .check-name { color: var(--text); }
+  body.dark .flip-row button { background: #1a1a1e; }
+  body.dark .history-compare { background: #1a1a1e; }
+  body.dark .form-input { color: var(--text); }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  header {
+    padding: 12px 24px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+  header .crumb { color: var(--muted); font-size: 13px; }
+  select {
+    font-size: 13px;
+    padding: 4px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    background: white;
+  }
+  .btn {
+    font-size: 13px;
+    padding: 6px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    background: white;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .btn-primary { background: var(--n8n); color: white; border-color: var(--n8n); }
+  .btn-primary:hover { background: var(--n8n-dark); }
+  .icon-btn {
+    width: 34px;
+    height: 34px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.1s, color 0.1s;
+  }
+  .icon-btn:hover { background: var(--bg); color: var(--text); }
+  .icon-btn svg { width: 18px; height: 18px; }
+  .icon-moon { display: none; }
+  body.dark .icon-sun { display: none; }
+  body.dark .icon-moon { display: block; }
+
+  /* Settings form */
+  .form-field { margin-bottom: 14px; }
+  .form-field:last-child { margin-bottom: 0; }
+  .form-label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .form-input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    background: var(--panel);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    outline: none;
+  }
+  .form-input:focus { border-color: var(--n8n); }
+  .form-help { font-size: 11px; color: var(--muted-2); margin-top: 4px; }
+  .modal-foot {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  /* Canvas with the three big n8n-style nodes */
+  .canvas {
+    background:
+      radial-gradient(circle, #d6d2cb 1px, transparent 1px) 0 0 / 18px 18px,
+      var(--canvas);
+    padding: 48px 32px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+  }
+  .node-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 220px;
+  }
+  .node {
+    width: 96px;
+    height: 96px;
+    background: var(--panel);
+    border: 1px solid var(--border-strong);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05), 0 6px 16px rgba(0,0,0,0.08);
+    transition: filter 0.15s;
+    cursor: pointer;
+  }
+  .node:hover { filter: brightness(1.08); }
+  .node-input  { background: #2563eb; border-color: #1d4ed8;
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.2), 0 6px 16px rgba(0,0,0,0.1); }
+  .node-process { background: var(--n8n); border-color: var(--n8n-dark); }
+  .node-result { background: #059669; border-color: #047857;
+    box-shadow: 0 0 0 3px rgba(5,150,105,0.2), 0 6px 16px rgba(0,0,0,0.1); }
+  .node-fail   { background: #dc2626; border-color: #b91c1c;
+    box-shadow: 0 0 0 3px rgba(220,38,38,0.2), 0 6px 16px rgba(0,0,0,0.1); }
+  .node-icon-svg {
+    width: 44px;
+    height: 44px;
+    color: white;
+  }
+  .node-icon-img {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+  }
+  .node-process { background: white; border-color: var(--border-strong); }
+  /* Connection ports — small circles on left/right like n8n */
+  .node::before, .node::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid var(--border-strong);
+  }
+  .node::before { left: -7px; }
+  .node::after { right: -7px; }
+  .node-wrap:first-child .node::before { display: none; }
+  .node-wrap:last-child .node::after { display: none; }
+  .node-status {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: bold;
+    color: white;
+    border: 2px solid var(--canvas);
+  }
+  .node-status.ok { background: var(--green); }
+  .node-status.bad { background: var(--red); }
+  .node-status.run { background: var(--n8n); }
+  .node-label {
+    margin-top: 14px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+  }
+  .node-sub {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--mono);
+    margin-top: 2px;
+  }
+
+  /* Connector between nodes — n8n's curved wire look */
+  .wire {
+    width: 100px;
+    height: 2px;
+    background: var(--muted-2);
+    position: relative;
+    margin: -42px -14px 0; /* overlap node ports so it connects */
+    z-index: 1;
+  }
+  .wire::after {
+    content: '';
+    position: absolute;
+    right: -1px;
+    top: -4px;
+    border-left: 8px solid var(--muted-2);
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+  }
+
+  /* Bottom: detail panel for the selected node */
+  .detail {
+    padding: 20px 24px;
+    background: var(--panel);
+    min-height: calc(100vh - 60px - 230px);
+  }
+  .detail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .detail-title {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .detail-title .crumb-inline { color: var(--muted); font-weight: 400; margin-left: 8px; }
+
+  .tabs {
+    display: flex;
+    gap: 2px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  .tab {
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+  }
+  .tab.active { color: var(--text); border-bottom-color: var(--n8n); font-weight: 500; }
+
+  .panes {
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  .pane-title {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+
+  /* n8n-style field table for input */
+  .field-table {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  .field-row {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    border-bottom: 1px solid var(--border);
+  }
+  .field-row:last-child { border-bottom: none; }
+  .field-key {
+    padding: 8px 12px;
+    background: #fafaf8;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .field-key.nested { padding-left: 24px; }
+  .field-key.nested-2 { padding-left: 36px; }
+  .field-val {
+    padding: 8px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .field-val .str { color: #047857; }
+  .field-val .num { color: #1d4ed8; }
+  .field-val .bool { color: var(--n8n); font-weight: 600; }
+  .field-val .obj { color: var(--muted); font-style: italic; }
+  .field-section {
+    padding: 6px 12px;
+    background: #f4f3ef;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Verdict on right */
+  .verdict-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    background: var(--red-bg);
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    margin-bottom: 14px;
+  }
+  .verdict-headline {
+    font-weight: 600;
+    color: var(--red-text);
+    font-size: 13px;
+  }
+  .verdict-sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .badge {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .badge-fail { background: var(--red-bg); color: var(--red-text); }
+  .badge-pass { background: var(--green-bg); color: var(--green-text); }
+
+  .group {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #fafaf8;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .group-title { font-weight: 600; }
+  .group-meta { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+  .check-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .check-row:last-child { border-bottom: none; }
+  .check-left {
+    font-family: var(--mono);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .check-arrow { color: var(--muted-2); }
+  .check-right {
+    font-family: var(--mono);
+    color: var(--muted);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .check-icon { width: 14px; text-align: center; font-weight: bold; }
+  .check { color: var(--green); }
+  .x { color: var(--red); }
+  .flip-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--blue-bg);
+    border-top: 1px dashed #bfdbfe;
+    font-size: 11px;
+    color: var(--blue);
+  }
+  .flip-row button {
+    background: white;
+    border: 1px solid #bfdbfe;
+    color: var(--blue);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: var(--mono);
+  }
+
+  /* Clean collapsible node-check rows */
+  .node-check {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 6px;
+    overflow: hidden;
+    background: white;
+  }
+  .node-check-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .node-check-row:hover { background: #fafaf8; }
+  .chev {
+    color: var(--muted);
+    font-size: 20px;
+    width: 18px;
+    line-height: 1;
+    transition: transform 0.15s;
+    display: inline-block;
+  }
+  .node-check.open .chev { transform: rotate(90deg); }
+  .status-dot { display: none; }
+  .check-name {
+    flex: 1;
+    font-weight: 500;
+  }
+  .node-check.fail .check-name { color: var(--text); }
+  .node-check-detail {
+    display: none;
+    border-top: 1px solid var(--border);
+    background: #fafaf8;
+  }
+  .node-check.open .node-check-detail { display: block; }
+  .node-check.open .node-check-row { background: #fafaf8; }
+
+  /* Modal */
+  .modal-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(28, 25, 23, 0.5);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(2px);
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: white;
+    border-radius: 12px;
+    width: 560px;
+    max-width: calc(100vw - 40px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    overflow: hidden;
+  }
+  .modal-head {
+    padding: 18px 22px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .modal-title { font-size: 15px; font-weight: 600; }
+  .modal-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+  }
+  .modal-body { padding: 14px; }
+  .option {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color 0.1s, background 0.1s;
+  }
+  .option:hover { border-color: var(--n8n); background: #fff7f9; }
+  .option:last-child { margin-bottom: 0; }
+  .option-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: #fafaf8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--n8n);
+    flex-shrink: 0;
+  }
+  .option-icon svg { width: 18px; height: 18px; }
+  .option-text { flex: 1; }
+  .option-title { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+  .option-sub { font-size: 12px; color: var(--muted); }
+  .option-arrow { color: var(--muted-2); font-size: 14px; }
+
+  /* Result modal extras */
+  .modal-lg { width: 640px; }
+  .run-summary {
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fafaf8;
+    margin-bottom: 14px;
+  }
+  .run-summary-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .run-headline { font-weight: 600; font-size: 14px; }
+  .run-headline.fail { color: var(--red-text); }
+  .run-headline.pass { color: var(--green-text); }
+  .run-sub { font-size: 12px; color: var(--muted); }
+  .save-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .save-row .btn { flex: 1; justify-content: center; display: flex; align-items: center; gap: 6px; }
+  .save-row .btn-primary svg, .save-row .btn svg { width: 14px; height: 14px; }
+  .section-label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    margin: 0 4px 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .section-label a { color: var(--blue); text-decoration: none; font-weight: 500; text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .history-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .history-row:hover { border-color: var(--n8n); background: #fff7f9; }
+  .history-icon {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: bold;
+    color: white;
+  }
+  .history-icon.pass { background: var(--green); }
+  .history-icon.fail { background: var(--red); }
+  .history-name { font-weight: 500; }
+  .history-name .fixture-tag {
+    background: #eef2ff;
+    color: #3730a3;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .history-time { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  .history-compare {
+    font-size: 11px;
+    color: var(--blue);
+    padding: 3px 8px;
+    border: 1px solid #bfdbfe;
+    border-radius: 4px;
+    background: white;
+  }
+
+  /* Hero action row */
+  .hero-actions {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    padding: 0 32px 32px;
+    background:
+      radial-gradient(circle, #d6d2cb 1px, transparent 1px) 0 0 / 18px 18px,
+      var(--canvas);
+    border-bottom: 1px solid var(--border);
+  }
+  .hero-actions .btn-primary { padding: 8px 24px; font-size: 14px; }
+</style>
+</head>
+<body>
+  <header>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <h1>n8n-flow-tester</h1>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;">
+      <button class="icon-btn" id="theme-toggle" title="Toggle dark mode">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="settings-btn" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- The three big n8n-canvas nodes -->
+  <div class="canvas">
+    <div class="node-wrap">
+      <div class="node node-input" title="Click to inspect input">
+        <img src="json-icon.png" alt="json" style="width: 46px; height: 46px; filter: invert(1) brightness(2);" />
+      </div>
+      <div class="node-label">no-budget-malaysian</div>
+      <div class="node-sub">saved fixture · 12 fields</div>
+    </div>
+
+    <div class="wire active"></div>
+
+    <div class="node-wrap">
+      <div class="node node-process" style="box-shadow: 0 0 0 3px rgba(234,75,113,0.2), 0 6px 16px rgba(0,0,0,0.1);">
+        <img src="n8n-icon.webp" alt="n8n" class="node-icon-img" />
+      </div>
+      <div class="node-label">Synthflow → HubSpot Sync</div>
+      <div class="node-sub">19 nodes · 11 fired · 2 skipped</div>
+    </div>
+
+    <div class="wire active"></div>
+
+    <div class="node-wrap">
+      <div class="node node-fail">
+        <svg class="node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="6" y1="6" x2="18" y2="18"/>
+          <line x1="18" y1="6" x2="6" y2="18"/>
+        </svg>
+      </div>
+      <div class="node-label">Won't fire</div>
+      <div class="node-sub">no branch matched · 11 of 13 passed</div>
+    </div>
+  </div>
+
+  <div class="hero-actions">
+    <button class="btn btn-primary">▶ Run</button>
+  </div>
+
+  <!-- Detail panel for whichever node is selected (default: Process, since it's the meaty one) -->
+  <div class="detail">
+    <div class="panes">
+      <div>
+        <div class="node-check pass">
+          <div class="node-check-row">
+            <span class="chev">▸</span>
+            <span class="status-dot"></span>
+            <span class="check-name">Verify Shared Token</span>
+            <span class="check-icon check">✓</span>
+          </div>
+          <div class="node-check-detail">
+            <div class="check-row">
+              <span class="check-left">token == env.SYNTHFLOW_TOKEN</span>
+              <span class="check-arrow">↔</span>
+              <span class="check-right">sf-n8n-sync…</span>
+              <span class="check-icon check">✓</span>
+            </div>
+          </div>
+        </div>
+        <div class="node-check pass">
+          <div class="node-check-row">
+            <span class="chev">▸</span>
+            <span class="status-dot"></span>
+            <span class="check-name">Search Contact</span>
+            <span class="check-icon check">✓</span>
+          </div>
+          <div class="node-check-detail">
+            <div class="check-row">
+              <span class="check-left">GET /crm/v3/objects/contacts/search</span>
+              <span class="check-arrow">↔</span>
+              <span class="check-right">200 · found 1</span>
+              <span class="check-icon check">✓</span>
+            </div>
+          </div>
+        </div>
+        <div class="node-check pass">
+          <div class="node-check-row">
+            <span class="chev">▸</span>
+            <span class="status-dot"></span>
+            <span class="check-name">Has Properties?</span>
+            <span class="check-icon check">✓</span>
+          </div>
+          <div class="node-check-detail">
+            <div class="check-row">
+              <span class="check-left">properties.length &gt; 0</span>
+              <span class="check-arrow">↔</span>
+              <span class="check-right">3</span>
+              <span class="check-icon check">✓</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="node-check fail open">
+          <div class="node-check-row">
+            <span class="chev">▸</span>
+            <span class="status-dot"></span>
+            <span class="check-name">Qualified?</span>
+            <span class="check-icon x">✗</span>
+          </div>
+          <div class="node-check-detail">
+            <div class="check-row">
+              <span class="check-left">extract_info_qualified.qualified == true</span>
+              <span class="check-arrow">↔</span>
+              <span class="check-right">false</span>
+              <span class="check-icon x">✗</span>
+            </div>
+            <div class="check-row">
+              <span class="check-left">hubspot_owner_id == "87319710"</span>
+              <span class="check-arrow">↔</span>
+              <span class="check-right">87319710</span>
+              <span class="check-icon check">✓</span>
+            </div>
+            <div class="flip-row">
+              <span>Flip to TRUE:</span>
+              <button>set qualified = true</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="node-check fail">
+          <div class="node-check-row">
+            <span class="chev">▸</span>
+            <span class="status-dot"></span>
+            <span class="check-name">Budget Starts With No?</span>
+            <span class="check-icon x">✗</span>
+          </div>
+          <div class="node-check-detail">
+            <div class="check-row">
+              <span class="check-left">living_expenses startsWith "no"</span>
+              <span class="check-arrow">↔</span>
+              <span class="check-right">"yes_i_have…"</span>
+              <span class="check-icon x">✗</span>
+            </div>
+            <div class="check-row">
+              <span class="check-left">university_fees startsWith "no"</span>
+              <span class="check-arrow">↔</span>
+              <span class="check-right">"yes_i_have…"</span>
+              <span class="check-icon x">✗</span>
+            </div>
+            <div class="flip-row">
+              <span>Flip to TRUE (either):</span>
+              <button>living_expenses = "no_…"</button>
+              <button>university_fees = "no_…"</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="node-check pass">
+          <div class="node-check-row">
+            <span class="chev">▸</span>
+            <span class="status-dot"></span>
+            <span class="check-name">Update Contact Properties</span>
+            <span class="check-icon check">✓</span>
+          </div>
+          <div class="node-check-detail">
+            <div class="check-row">
+              <span class="check-left">PATCH /crm/v3/objects/contacts/{id}</span>
+              <span class="check-arrow">↔</span>
+              <span class="check-right">200 · 142ms</span>
+              <span class="check-icon check">✓</span>
+            </div>
+          </div>
+        </div>
+        <div class="node-check pass">
+          <div class="node-check-row">
+            <span class="chev">▸</span>
+            <span class="status-dot"></span>
+            <span class="check-name">Create Call Note</span>
+            <span class="check-icon check">✓</span>
+          </div>
+          <div class="node-check-detail">
+            <div class="check-row">
+              <span class="check-left">POST /crm/v3/objects/notes</span>
+              <span class="check-arrow">↔</span>
+              <span class="check-right">201 · 88ms</span>
+              <span class="check-icon check">✓</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <div class="modal-backdrop" id="input-modal">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">Set workflow input</div>
+        <button class="modal-close" onclick="document.getElementById('input-modal').classList.remove('open')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="option">
+          <div class="option-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+              <polyline points="17 21 17 13 7 13 7 21"/>
+              <polyline points="7 3 7 8 15 8"/>
+            </svg>
+          </div>
+          <div class="option-text">
+            <div class="option-title">Pick from saved tests</div>
+            <div class="option-sub">12 saved · qualified-malaysian, no-budget-kenyan, …</div>
+          </div>
+          <span class="option-arrow">›</span>
+        </div>
+
+        <div class="option">
+          <div class="option-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <div class="option-text">
+            <div class="option-title">Pull from past execution</div>
+            <div class="option-sub">Pick a recent run from n8n, or paste execution ID</div>
+          </div>
+          <span class="option-arrow">›</span>
+        </div>
+
+        <div class="option">
+          <div class="option-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 18l6-6-6-6"/>
+              <path d="M8 6l-6 6 6 6"/>
+            </svg>
+          </div>
+          <div class="option-text">
+            <div class="option-title">Paste JSON</div>
+            <div class="option-sub">Quick one-off payload</div>
+          </div>
+          <span class="option-arrow">›</span>
+        </div>
+
+        <div class="option">
+          <div class="option-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <div class="option-text">
+            <div class="option-title">Upload .json file</div>
+            <div class="option-sub">From your computer</div>
+          </div>
+          <span class="option-arrow">›</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="settings-modal">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">Settings</div>
+        <button class="modal-close" onclick="document.getElementById('settings-modal').classList.remove('open')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-field">
+          <label class="form-label">n8n instance URL</label>
+          <input class="form-input" type="text" value="https://n8n.example.com" placeholder="https://your-n8n-host" />
+          <div class="form-help">Where your workflows live. Used to list workflows and pull execution data.</div>
+        </div>
+        <div class="form-field">
+          <label class="form-label">n8n API key</label>
+          <input class="form-input" type="password" value="••••••••••••••••••••" placeholder="n8n_api_…" />
+          <div class="form-help">Generate from n8n → Settings → API. Stored locally in your browser.</div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="document.getElementById('settings-modal').classList.remove('open')">Cancel</button>
+        <button class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="workflow-modal">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">Load workflow to test</div>
+        <button class="modal-close" onclick="document.getElementById('workflow-modal').classList.remove('open')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="option">
+          <div class="option-icon">
+            <img src="n8n-icon.webp" alt="n8n" style="width:20px;height:20px;object-fit:contain;" />
+          </div>
+          <div class="option-text">
+            <div class="option-title">Pick from n8n instance</div>
+            <div class="option-sub">47 workflows · Synthflow → HubSpot, Partner Portal, …</div>
+          </div>
+          <span class="option-arrow">›</span>
+        </div>
+
+        <div class="option">
+          <div class="option-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 18l6-6-6-6"/>
+              <path d="M8 6l-6 6 6 6"/>
+            </svg>
+          </div>
+          <div class="option-text">
+            <div class="option-title">Paste workflow JSON</div>
+            <div class="option-sub">Quick one-off — exported from n8n editor</div>
+          </div>
+          <span class="option-arrow">›</span>
+        </div>
+
+        <div class="option">
+          <div class="option-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <div class="option-text">
+            <div class="option-title">Upload .json file</div>
+            <div class="option-sub">From your computer</div>
+          </div>
+          <span class="option-arrow">›</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="result-modal">
+    <div class="modal modal-lg">
+      <div class="modal-head">
+        <div class="modal-title">Result · Synthflow → HubSpot Sync</div>
+        <button class="modal-close" onclick="document.getElementById('result-modal').classList.remove('open')">✕</button>
+      </div>
+      <div class="modal-body">
+
+        <div class="run-summary">
+          <div class="run-summary-top">
+            <div class="run-headline fail">Won't fire · no branch matched</div>
+            <span class="badge badge-fail">Failed</span>
+          </div>
+          <div class="run-sub">11 of 13 nodes passed · Qualified? = false · Budget Starts With No? = false · ran 2m ago</div>
+        </div>
+
+        <div class="save-row">
+          <button class="btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+              <polyline points="17 21 17 13 7 13 7 21"/>
+            </svg>
+            Save as fixture
+          </button>
+          <button class="btn btn-primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            Save as baseline
+          </button>
+        </div>
+
+        <div class="section-label">
+          <span>Run history</span>
+          <a>Compare two runs →</a>
+        </div>
+
+        <div class="history-row">
+          <div class="history-icon fail">✕</div>
+          <div class="history-name">no-budget-malaysian <span class="fixture-tag">fixture</span></div>
+          <div class="history-time">2m ago</div>
+          <button class="history-compare">vs last</button>
+        </div>
+        <div class="history-row">
+          <div class="history-icon pass">✓</div>
+          <div class="history-name">qualified-malaysian <span class="fixture-tag">baseline</span></div>
+          <div class="history-time">1h ago</div>
+          <button class="history-compare">vs last</button>
+        </div>
+        <div class="history-row">
+          <div class="history-icon pass">✓</div>
+          <div class="history-name">qualified-kenyan</div>
+          <div class="history-time">yesterday</div>
+          <button class="history-compare">vs last</button>
+        </div>
+        <div class="history-row">
+          <div class="history-icon fail">✕</div>
+          <div class="history-name">production · execution #44991</div>
+          <div class="history-time">2d ago</div>
+          <button class="history-compare">vs last</button>
+        </div>
+        <div class="history-row">
+          <div class="history-icon pass">✓</div>
+          <div class="history-name">qualified-malaysian <span class="fixture-tag">baseline</span></div>
+          <div class="history-time">3d ago</div>
+          <button class="history-compare">vs last</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  document.querySelectorAll('.node-check-row').forEach(row => {
+    row.addEventListener('click', () => {
+      row.parentElement.classList.toggle('open');
+    });
+  });
+  document.querySelector('.node-input').addEventListener('click', () => {
+    document.getElementById('input-modal').classList.add('open');
+  });
+  document.querySelector('.node-process').addEventListener('click', () => {
+    document.getElementById('workflow-modal').classList.add('open');
+  });
+  document.querySelector('.node-fail, .node-result').addEventListener('click', () => {
+    document.getElementById('result-modal').classList.add('open');
+  });
+  ['input-modal', 'workflow-modal', 'result-modal', 'settings-modal'].forEach(id => {
+    document.getElementById(id).addEventListener('click', (e) => {
+      if (e.target.id === id) e.currentTarget.classList.remove('open');
+    });
+  });
+  document.getElementById('settings-btn').addEventListener('click', () => {
+    document.getElementById('settings-modal').classList.add('open');
+  });
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    document.body.classList.toggle('dark');
+    localStorage.setItem('theme', document.body.classList.contains('dark') ? 'dark' : 'light');
+  });
+  if (localStorage.getItem('theme') === 'dark') document.body.classList.add('dark');
+</script>
+</body>
+</html>
