@@ -157,10 +157,10 @@ function stubNode(node: N8nNode): N8nNode {
   // n8n would warn about. continueOnFail is harmless either way.
   // We DO preserve id, name, position so $('Node X') references resolve
   // and the visual layout matches the source workflow.
-  const cleaned: Record<string, unknown> = { ...node };
+  const cleaned: Record<string, unknown> = { ...(node as unknown as Record<string, unknown>) };
   delete cleaned.credentials;
   return {
-    ...(cleaned as N8nNode),
+    ...(cleaned as unknown as N8nNode),
     type: "n8n-nodes-base.set",
     typeVersion: 3.4,
     parameters: {

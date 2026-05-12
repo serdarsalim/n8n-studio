@@ -13,13 +13,16 @@ import {
   apiGetExecution,
   apiGetWorkflow,
   apiRun,
+  apiTestRun,
   bumpExecAccess,
   bumpTestCount,
+  readPrefs,
   readSession,
   readSettings,
   readTheme,
   setTheme,
   upsertFixtureFromExecution,
+  writePrefs,
   writeSession,
   writeSettings,
 } from "@/lib/client";
@@ -50,6 +53,8 @@ export default function Page() {
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
+  const [testMode, setTestModeState] = useState(false);
+  const [testRunNote, setTestRunNote] = useState<string | null>(null);
 
   // Hydrate persisted state.
   const [hydrated, setHydrated] = useState(false);
@@ -62,8 +67,16 @@ export default function Page() {
     setInputText(session.inputText);
     setInputJson(session.inputJson);
     setSelectedFixtureId(session.selectedFixtureId);
+    setTestModeState(readPrefs().testMode);
     setHydrated(true);
   }, []);
+
+  const setTestMode = (next: boolean) => {
+    setTestModeState(next);
+    const current = readPrefs();
+    writePrefs({ ...current, testMode: next });
+    setTestRunNote(null);
+  };
 
   // Persist working state on any change — but only after hydration so we
   // don't overwrite stored values with the empty initial state on mount.
@@ -91,24 +104,29 @@ export default function Page() {
   );
 
   const fired = checks.filter((c) => c.fired).length;
+  // If the execution belongs to a different workflow than the loaded
+  // source, it ran against the test mirror — annotate the verdict.
+  const ranOnMirror =
+    !!execution && !!workflow && execution.workflowId !== workflow.id;
   // Mirror n8n's execution.status verbatim — never derive. Branching
   // workflows correctly skip the path not taken; that isn't a failure.
   const verdict = ((): { label: string; sub: string; ok: boolean | null } | null => {
     if (!execution) return null;
     const status = execution.status;
     const firedSub = `${fired} of ${checks.length} nodes fired`;
-    if (status === "success") return { label: "Succeeded", sub: firedSub, ok: true };
+    const suffix = ranOnMirror ? " (test)" : "";
+    if (status === "success") return { label: `Succeeded${suffix}`, sub: firedSub, ok: true };
     if (status === "error") {
       const err = execution.data?.resultData?.error;
       const errSub = err?.message
         ? `${err.node?.name ? `${err.node.name}: ` : ""}${err.message}`
         : firedSub;
-      return { label: "Error", sub: errSub, ok: false };
+      return { label: `Error${suffix}`, sub: errSub, ok: false };
     }
-    if (status === "canceled") return { label: "Canceled", sub: firedSub, ok: false };
-    if (status === "running") return { label: "Running", sub: firedSub, ok: null };
-    if (status === "waiting") return { label: "Waiting", sub: firedSub, ok: null };
-    if (status === "new") return { label: "Queued", sub: firedSub, ok: null };
+    if (status === "canceled") return { label: `Canceled${suffix}`, sub: firedSub, ok: false };
+    if (status === "running") return { label: `Running${suffix}`, sub: firedSub, ok: null };
+    if (status === "waiting") return { label: `Waiting${suffix}`, sub: firedSub, ok: null };
+    if (status === "new") return { label: `Queued${suffix}`, sub: firedSub, ok: null };
     // Unknown status — surface whatever n8n said, don't fake a verdict.
     return { label: status ?? "Unknown", sub: firedSub, ok: null };
   })();
@@ -146,22 +164,44 @@ export default function Page() {
       setRunError("Configure n8n URL and API key in Settings first.");
       return;
     }
-    const webhookUrl = findWebhookUrl(workflow, settings.n8nUrl);
-    if (!webhookUrl) {
-      setRunError("This workflow has no Webhook trigger — can't run it from here yet.");
-      return;
+    if (!testMode) {
+      const webhookUrl = findWebhookUrl(workflow, settings.n8nUrl);
+      if (!webhookUrl) {
+        setRunError("This workflow has no Webhook trigger — can't run it from here yet.");
+        return;
+      }
     }
     setRunError(null);
+    setTestRunNote(null);
     setRunning(true);
     setExecution(null);
     try {
-      const { executionId } = await apiRun(settings, {
-        webhookUrl,
-        payload: inputJson,
-        workflowId: workflow.id,
-      });
+      let executionId: string | null;
+      if (testMode) {
+        const result = await apiTestRun(settings, {
+          workflowId: workflow.id,
+          payload: inputJson,
+        });
+        executionId = result.executionId;
+        setTestRunNote(
+          `Stubbed ${result.stubbedCount} node${result.stubbedCount === 1 ? "" : "s"}` +
+            (result.testWorkflowCreated ? " · created test mirror" : " · reused test mirror"),
+        );
+      } else {
+        const webhookUrl = findWebhookUrl(workflow, settings.n8nUrl)!;
+        const result = await apiRun(settings, {
+          webhookUrl,
+          payload: inputJson,
+          workflowId: workflow.id,
+        });
+        executionId = result.executionId;
+      }
       if (!executionId) {
-        setRunError("Webhook fired but n8n didn't surface an execution. Check that the workflow is active and records executions.");
+        setRunError(
+          testMode
+            ? "Test webhook fired but n8n didn't surface an execution yet. Check the test mirror is active."
+            : "Webhook fired but n8n didn't surface an execution. Check that the workflow is active and records executions.",
+        );
         return;
       }
       // Poll until finished. Bottom panel reflects the result — no modal pop.
@@ -179,7 +219,7 @@ export default function Page() {
     } finally {
       setRunning(false);
     }
-  }, [workflow, settings, inputJson]);
+  }, [workflow, settings, inputJson, testMode, applyExecution]);
 
   const onPickWorkflow = useCallback(
     async (id: string, name: string) => {
@@ -209,6 +249,7 @@ export default function Page() {
       <header className="px-6 py-3 bg-[var(--panel)] border-b border-[var(--border)] flex items-center justify-between gap-3">
         <h1 className="m-0 text-[15px] font-semibold">n8n-flow-tester</h1>
         <div className="flex items-center gap-2">
+          <TestModeToggle on={testMode} onChange={setTestMode} />
           {(() => {
             const disabled = !workflow || !inputText || running;
             const tooltip = !workflow && !inputText
@@ -218,9 +259,10 @@ export default function Page() {
                 : !inputText
                   ? "Paste an input first"
                   : undefined;
+            const label = running ? "Running…" : testMode ? "▶ Run (test)" : "▶ Run";
             return (
               <Btn primary onClick={handleRun} disabled={disabled} tooltip={tooltip}>
-                {running ? "Running…" : "▶ Run"}
+                {label}
               </Btn>
             );
           })()}
@@ -233,7 +275,16 @@ export default function Page() {
         </div>
       </header>
 
-      <div className="canvas-bg px-8 pt-6 pb-6 flex items-center justify-center border-b border-[var(--border)]">
+      <div
+        className={`canvas-bg px-8 pt-6 pb-6 flex items-center justify-center border-b border-[var(--border)] relative ${
+          testMode ? "ring-2 ring-inset ring-[var(--n8n)]/60" : ""
+        }`}
+      >
+        {testMode && (
+          <div className="absolute top-2 left-4 text-[10px] font-semibold tracking-[1px] uppercase px-2 py-[2px] rounded bg-[var(--n8n)] text-white">
+            Test mode
+          </div>
+        )}
         <NodeBlock
           color="blue"
           icon={<Image src="/json-icon.png" alt="json" width={37} height={37} className="invert brightness-200" />}
@@ -290,6 +341,11 @@ export default function Page() {
         {runError && (
           <div className="mb-4 text-[13px] text-[var(--red-text)] bg-[var(--red-bg)] px-3 py-2 rounded">
             {runError}
+          </div>
+        )}
+        {!runError && testRunNote && (
+          <div className="mb-4 text-[12px] text-[var(--muted)] px-3 py-2 rounded border border-[var(--border)] bg-[var(--panel-soft)]">
+            Test run · {testRunNote}
           </div>
         )}
         <div className="flex gap-6 items-start">
@@ -394,6 +450,37 @@ function IconBtn({
       className="w-[34px] h-[34px] border-0 bg-transparent text-[var(--muted)] cursor-pointer rounded-md flex items-center justify-center hover:bg-[var(--bg)] hover:text-[var(--text)]"
     >
       {children}
+    </button>
+  );
+}
+
+function TestModeToggle({
+  on,
+  onChange,
+}: {
+  on: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!on)}
+      title={
+        on
+          ? "Test mode ON — runs use a stubbed mirror, no real side effects"
+          : "Test mode OFF — runs hit your live workflow"
+      }
+      className={`h-[34px] px-3 text-[12px] font-medium rounded-md border transition-colors cursor-pointer flex items-center gap-2 ${
+        on
+          ? "bg-[var(--n8n)] text-white border-[var(--n8n)]"
+          : "bg-transparent text-[var(--muted)] border-[var(--border-strong)] hover:text-[var(--text)]"
+      }`}
+    >
+      <span
+        className={`w-2 h-2 rounded-full ${on ? "bg-white" : "bg-[var(--muted-2)]"}`}
+        aria-hidden
+      />
+      Test mode {on ? "on" : "off"}
     </button>
   );
 }

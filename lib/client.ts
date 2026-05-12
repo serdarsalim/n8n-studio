@@ -106,12 +106,14 @@ export interface AppPrefs {
   paramsDefaultOpen: boolean;
   dataViewDefault: "table" | "json";
   singleItemAsList: boolean;
+  testMode: boolean;
 }
 
 export const DEFAULT_PREFS: AppPrefs = {
   paramsDefaultOpen: true,
   dataViewDefault: "table",
   singleItemAsList: true,
+  testMode: false,
 };
 
 export function readPrefs(): AppPrefs {
@@ -124,6 +126,7 @@ export function readPrefs(): AppPrefs {
       paramsDefaultOpen: parsed.paramsDefaultOpen ?? DEFAULT_PREFS.paramsDefaultOpen,
       dataViewDefault: parsed.dataViewDefault ?? DEFAULT_PREFS.dataViewDefault,
       singleItemAsList: parsed.singleItemAsList ?? DEFAULT_PREFS.singleItemAsList,
+      testMode: parsed.testMode ?? DEFAULT_PREFS.testMode,
     };
   } catch {
     return DEFAULT_PREFS;
@@ -243,6 +246,58 @@ export async function apiRun(
     webhookResponse: data.webhookResponse,
     note: data.note,
   };
+}
+
+export interface TestRunResult {
+  executionId: string | null;
+  testWorkflowId: string;
+  testWorkflowCreated: boolean;
+  testWebhookPath: string;
+  stubbedCount: number;
+  stubbedNodes: string[];
+  webhookResponse: unknown;
+  note?: string;
+}
+
+export async function apiTestRun(
+  s: AppSettings,
+  args: { workflowId: string; payload: unknown },
+): Promise<TestRunResult> {
+  const res = await fetch("/api/test-run", {
+    method: "POST",
+    headers: { ...authHeaders(s), "Content-Type": "application/json" },
+    body: JSON.stringify(args),
+  });
+  const data = (await parseJsonOrThrow(res, "POST /api/test-run")) as Partial<TestRunResult> & {
+    error?: string;
+  };
+  if (!res.ok) throw new Error(data.error || "Test run failed");
+  return {
+    executionId: data.executionId ?? null,
+    testWorkflowId: data.testWorkflowId ?? "",
+    testWorkflowCreated: data.testWorkflowCreated ?? false,
+    testWebhookPath: data.testWebhookPath ?? "",
+    stubbedCount: data.stubbedCount ?? 0,
+    stubbedNodes: data.stubbedNodes ?? [],
+    webhookResponse: data.webhookResponse,
+    note: data.note,
+  };
+}
+
+export async function apiDeleteTestMirror(
+  s: AppSettings,
+  workflowId: string,
+): Promise<{ deleted: boolean }> {
+  const res = await fetch(`/api/test-mirror?workflowId=${encodeURIComponent(workflowId)}`, {
+    method: "DELETE",
+    headers: authHeaders(s),
+  });
+  const data = (await parseJsonOrThrow(res, "DELETE /api/test-mirror")) as {
+    deleted?: boolean;
+    error?: string;
+  };
+  if (!res.ok) throw new Error(data.error || "Failed to delete test mirror");
+  return { deleted: data.deleted ?? false };
 }
 
 // ─── Fixtures ──────────────────────────────────────────────────────────
