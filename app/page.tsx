@@ -387,6 +387,8 @@ export default function Page() {
         open={modal === "settings"}
         onClose={() => setModal(null)}
         initial={settings}
+        workflowId={workflow?.id ?? null}
+        workflowName={workflow?.name ?? null}
         onSave={(s) => {
           setSettings(s);
           writeSettings(s);

@@ -1,7 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { AppSettings } from "@/lib/types";
-import { type AppPrefs, DEFAULT_PREFS, readPrefs, writePrefs } from "@/lib/client";
+import {
+  type AppPrefs,
+  DEFAULT_PREFS,
+  apiDeleteTestMirror,
+  readPrefs,
+  writePrefs,
+} from "@/lib/client";
 import { Btn, Modal } from "./modal";
 
 export function SettingsModal({
@@ -9,21 +15,30 @@ export function SettingsModal({
   onClose,
   initial,
   onSave,
+  workflowId,
+  workflowName,
 }: {
   open: boolean;
   onClose: () => void;
   initial: AppSettings;
   onSave: (s: AppSettings) => void;
+  workflowId?: string | null;
+  workflowName?: string | null;
 }) {
   const [url, setUrl] = useState(initial.n8nUrl);
   const [key, setKey] = useState(initial.apiKey);
   const [prefs, setPrefs] = useState<AppPrefs>(DEFAULT_PREFS);
+  const [mirrorState, setMirrorState] = useState<{
+    kind: "idle" | "deleting" | "result";
+    message?: string;
+  }>({ kind: "idle" });
 
   useEffect(() => {
     if (open) {
       setUrl(initial.n8nUrl);
       setKey(initial.apiKey);
       setPrefs(readPrefs());
+      setMirrorState({ kind: "idle" });
     }
   }, [open, initial.n8nUrl, initial.apiKey]);
 
@@ -31,6 +46,25 @@ export function SettingsModal({
     const next = { ...prefs, [k]: v };
     setPrefs(next);
     writePrefs(next);
+  };
+
+  const handleDeleteMirror = async () => {
+    if (!workflowId) return;
+    setMirrorState({ kind: "deleting" });
+    try {
+      const { deleted } = await apiDeleteTestMirror(
+        { n8nUrl: url.trim(), apiKey: key.trim() },
+        workflowId,
+      );
+      setMirrorState({
+        kind: "result",
+        message: deleted
+          ? "Test mirror deleted."
+          : "No test mirror found for this workflow.",
+      });
+    } catch (e) {
+      setMirrorState({ kind: "result", message: (e as Error).message });
+    }
   };
 
   return (
@@ -95,6 +129,34 @@ export function SettingsModal({
         checked={prefs.singleItemAsList}
         onChange={(v) => updatePref("singleItemAsList", v)}
       />
+
+      <SectionLabel className="mt-6">Test mode</SectionLabel>
+      <div className="text-[12px] text-[var(--muted)] mb-3 leading-relaxed">
+        Test mode runs against a transformed copy of the workflow with every
+        side-effect node replaced by a Set stub. The mirror lives in n8n as
+        <code className="mx-1 px-1 rounded bg-[var(--panel-soft-2)] text-[var(--text)]">
+          (test) {workflowName ?? "<workflow name>"}
+        </code>
+        and is regenerated from the source on every test run.
+      </div>
+      <div className="flex items-center gap-3 flex-wrap">
+        <Btn
+          onClick={handleDeleteMirror}
+          disabled={!workflowId || mirrorState.kind === "deleting" || !url || !key}
+          tooltip={
+            !workflowId
+              ? "Load a workflow first"
+              : !url || !key
+                ? "Enter your n8n URL and API key"
+                : undefined
+          }
+        >
+          {mirrorState.kind === "deleting" ? "Deleting…" : "Delete test mirror"}
+        </Btn>
+        {mirrorState.kind === "result" && (
+          <span className="text-[12px] text-[var(--muted)]">{mirrorState.message}</span>
+        )}
+      </div>
       <style>{formInputCss}</style>
     </Modal>
   );
