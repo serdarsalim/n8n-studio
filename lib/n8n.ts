@@ -102,14 +102,38 @@ export async function listExecutions(
 
 const WRITE_ALLOWED_FIELDS = ["name", "nodes", "connections", "settings", "staticData"] as const;
 
+// n8n's POST/PUT /workflows strictly rejects unknown keys inside `settings`
+// (e.g. internal-only fields like `callerPolicy` that GET returns but the
+// write endpoint refuses). Keep only what the public schema documents.
+const SETTINGS_ALLOWED_FIELDS = [
+  "executionOrder",
+  "timezone",
+  "saveDataErrorExecution",
+  "saveDataSuccessExecution",
+  "saveExecutionProgress",
+  "saveManualExecutions",
+  "executionTimeout",
+  "errorWorkflow",
+] as const;
+
+function pruneSettings(settings: unknown): Record<string, unknown> {
+  if (!settings || typeof settings !== "object") return {};
+  const src = settings as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of SETTINGS_ALLOWED_FIELDS) {
+    if (src[k] !== undefined) out[k] = src[k];
+  }
+  return out;
+}
+
 function pruneForWrite(workflow: N8nWorkflow): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const k of WRITE_ALLOWED_FIELDS) {
     const v = (workflow as unknown as Record<string, unknown>)[k];
     if (v !== undefined) out[k] = v;
   }
-  // n8n insists on a `settings` object — empty is fine, but undefined errors.
-  if (!out.settings) out.settings = {};
+  // settings must be present (empty is fine) and free of unknown keys.
+  out.settings = pruneSettings(out.settings);
   return out;
 }
 
