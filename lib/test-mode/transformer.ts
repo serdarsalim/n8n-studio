@@ -56,14 +56,17 @@ export interface TransformResult {
 }
 
 export function transformWorkflow(source: N8nWorkflow): TransformResult {
-  const webhookNode = source.nodes.find(
+  const webhookNodes = source.nodes.filter(
     (n) =>
       n.type === "n8n-nodes-base.webhook" ||
       n.type.endsWith(".Webhook"),
   );
 
-  if (webhookNode) {
-    return transformWithExistingWebhook(source, webhookNode);
+  if (webhookNodes.length > 0) {
+    // First webhook by document order is the firing target; any others
+    // (e.g. wait-resume callbacks) still get the -test suffix so they
+    // don't collide with prod webhook paths.
+    return transformWithExistingWebhook(source, webhookNodes);
   }
 
   // No webhook trigger — inject a synthetic one so we can fire the workflow.
@@ -78,11 +81,13 @@ export function transformWorkflow(source: N8nWorkflow): TransformResult {
 
 function transformWithExistingWebhook(
   source: N8nWorkflow,
-  webhookNode: N8nNode,
+  webhookNodes: N8nNode[],
 ): TransformResult {
+  const webhookSet = new Set(webhookNodes);
+  const primaryWebhook = webhookNodes[0];
   const stubbedNodes: string[] = [];
   const transformedNodes: N8nNode[] = source.nodes.map((node) => {
-    if (node === webhookNode) return transformWebhookTrigger(node);
+    if (webhookSet.has(node)) return transformWebhookTrigger(node);
     if (shouldStub(node)) {
       stubbedNodes.push(node.name);
       return stubNode(node);
@@ -91,8 +96,8 @@ function transformWithExistingWebhook(
   });
 
   const originalPath =
-    String((webhookNode.parameters as Record<string, unknown> | undefined)?.path ?? "") ||
-    webhookNode.webhookId ||
+    String((primaryWebhook.parameters as Record<string, unknown> | undefined)?.path ?? "") ||
+    primaryWebhook.webhookId ||
     "";
   const testPath = `${originalPath}${TEST_PATH_SUFFIX}`;
 
@@ -108,7 +113,7 @@ function transformWithExistingWebhook(
     workflow: mirror,
     stubbedCount: stubbedNodes.length,
     stubbedNodes,
-    webhookNode,
+    webhookNode: primaryWebhook,
     testWebhookPath: testPath,
   };
 }
@@ -261,11 +266,33 @@ function randomSuffix(): string {
 
 function shouldStub(node: N8nNode): boolean {
   if (node.disabled) return false;
+
+  // Wait nodes with external resume hang the workflow waiting for a real
+  // webhook callback — nothing in test mode is going to fire that. Stub
+  // them so the flow continues. Time-based waits stay real (and short).
+  if (node.type === "n8n-nodes-base.wait") {
+    return isExternalResumeWait(node);
+  }
+
+  // LangChain / AI calls cost money even for "reads" (LLM tokens, vector
+  // DB queries). Always stub.
+  if (node.type.includes("n8n-nodes-langchain.")) return true;
+
   if (ALLOWLIST_TYPES.has(node.type)) return false;
 
   // HTTP: only stub write methods. GET/HEAD/OPTIONS stay (real reads).
   if (node.type === "n8n-nodes-base.httpRequest") {
     return isWriteMethod(node);
+  }
+
+  // SQL databases: stub writes and write-intent raw queries; reads stay
+  // real (cheap, side-effect-free).
+  if (node.type === "n8n-nodes-base.postgres" ||
+      node.type === "n8n-nodes-base.mySql" ||
+      node.type === "n8n-nodes-base.microsoftSql" ||
+      node.type === "n8n-nodes-base.mssql") {
+    if (isWriteOperation(node)) return true;
+    return isExecuteQueryWriteIntent(node);
   }
 
   // Integration nodes: stub if the operation is a write, keep if read.
@@ -278,10 +305,30 @@ function shouldStub(node: N8nNode): boolean {
   return true;
 }
 
+function isExecuteQueryWriteIntent(node: N8nNode): boolean {
+  const op = String(node.parameters?.operation ?? "").toLowerCase();
+  if (op !== "executequery" && op !== "execute") return false;
+  const sql = String(node.parameters?.query ?? "").trim().toLowerCase();
+  if (!sql) return true; // can't tell — stub to be safe
+  return /^(insert|update|delete|create|drop|alter|truncate|merge|replace|grant|revoke)/.test(
+    sql,
+  );
+}
+
+function isExternalResumeWait(node: N8nNode): boolean {
+  const resume = String(node.parameters?.resume ?? "").toLowerCase();
+  return resume === "webhook" || resume === "form";
+}
+
 function looksLikeIntegration(node: N8nNode): boolean {
+  // Base nodes plus common community-node prefixes (LangChain bundle,
+  // org-scoped packages). We use the same read-op heuristic for all.
+  const t = node.type;
+  if (ALLOWLIST_TYPES.has(t)) return false;
   return (
-    node.type.startsWith("n8n-nodes-base.") &&
-    !ALLOWLIST_TYPES.has(node.type)
+    t.startsWith("n8n-nodes-base.") ||
+    t.startsWith("@n8n/n8n-nodes-") ||
+    t.includes("n8n-nodes-langchain.")
   );
 }
 

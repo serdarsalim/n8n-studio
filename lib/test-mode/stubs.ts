@@ -224,6 +224,142 @@ export const STUBS: Stub[] = [
     }),
   },
 
+  // ─── Databases (write ops only — read ops stay real) ─────────────
+  // Postgres / MySQL / MSSQL / CrateDB / TimescaleDB: write ops return
+  // an n8n-style affected-rows object.
+  {
+    matches: (n) =>
+      isSqlDatabaseNode(n) &&
+      (isWriteOperation(n) || isQueryWriteIntent(n)),
+    shape: (n) => ({
+      stub: true,
+      operation: stringify(n.parameters?.operation ?? "executeQuery"),
+      rowCount: 1,
+      command: stringify(n.parameters?.operation ?? "INSERT"),
+      rows: [],
+      affectedRows: 1,
+    }),
+  },
+
+  // MongoDB write
+  {
+    matches: (n) =>
+      n.type === "n8n-nodes-base.mongoDb" && isWriteOperation(n),
+    shape: () => ({
+      stub: true,
+      acknowledged: true,
+      insertedId: `mongo-stub-${randomId()}`,
+      modifiedCount: 1,
+      matchedCount: 1,
+    }),
+  },
+
+  // Redis writes (set, del, expire, …)
+  {
+    matches: (n) =>
+      n.type === "n8n-nodes-base.redis" && isWriteOperation(n),
+    shape: () => ({ stub: true, result: "OK" }),
+  },
+
+  // Supabase / Firebase write ops
+  {
+    matches: (n) =>
+      (n.type === "n8n-nodes-base.supabase" ||
+        n.type === "n8n-nodes-base.googleFirebaseCloudFirestore") &&
+      isWriteOperation(n),
+    shape: () => ({
+      stub: true,
+      id: `db-row-${randomId()}`,
+      created_at: nowIso(),
+    }),
+  },
+
+  // Queue / event nodes (publish-side): RabbitMQ, Kafka, SNS, SQS, NATS
+  {
+    matches: (n) =>
+      n.type === "n8n-nodes-base.rabbitmq" ||
+      n.type === "n8n-nodes-base.kafka" ||
+      n.type === "n8n-nodes-base.awsSns" ||
+      n.type === "n8n-nodes-base.awsSqs" ||
+      n.type === "n8n-nodes-base.nats",
+    shape: () => ({
+      stub: true,
+      messageId: `msg-${randomId()}`,
+      ok: true,
+    }),
+  },
+
+  // GitHub / GitLab / Jira / Linear writes
+  {
+    matches: (n) =>
+      (n.type === "n8n-nodes-base.github" ||
+        n.type === "n8n-nodes-base.gitlab" ||
+        n.type === "n8n-nodes-base.jira" ||
+        n.type === "n8n-nodes-base.linear") &&
+      isWriteOperation(n),
+    shape: (n) => ({
+      stub: true,
+      id: `${stringify(n.parameters?.resource ?? "issue")}-${randomId()}`,
+      url: "https://stub.example/issue",
+      created_at: nowIso(),
+    }),
+  },
+
+  // ─── LangChain / AI agent nodes ──────────────────────────────────
+  // Agent / chain → fake LLM-style completion. Their downstream code
+  // typically consumes `output` / `text`.
+  {
+    matches: (n) =>
+      isLangChainType(n) &&
+      (n.type.includes(".agent") ||
+        n.type.includes(".chain") ||
+        n.type.includes(".conversationalAgent")),
+    shape: () => ({
+      output: "Stubbed agent response.",
+      text: "Stubbed agent response.",
+      intermediateSteps: [],
+    }),
+  },
+
+  // Chat models (OpenAI, Anthropic, Mistral, Ollama, etc.)
+  {
+    matches: (n) =>
+      isLangChainType(n) &&
+      (n.type.toLowerCase().includes("chatmodel") ||
+        n.type.toLowerCase().includes("lmchatopenai") ||
+        n.type.toLowerCase().includes("lmchatanthropic") ||
+        n.type.toLowerCase().includes("lmchat")),
+    shape: () => ({
+      response: { generations: [[{ text: "Stubbed completion." }]] },
+      text: "Stubbed completion.",
+    }),
+  },
+
+  // Embeddings → return a tiny fake vector. Real embedding dimensions
+  // vary; downstream code shouldn't depend on the exact size in tests.
+  {
+    matches: (n) =>
+      isLangChainType(n) && n.type.toLowerCase().includes("embedding"),
+    shape: () => ({
+      embedding: [0.0, 0.1, 0.2, 0.3, 0.4],
+      data: [{ embedding: [0.0, 0.1, 0.2, 0.3, 0.4] }],
+    }),
+  },
+
+  // Vector store WRITES (insert/upsert). Reads (similarity search) fall
+  // through to the integration-read allowlist via the transformer.
+  {
+    matches: (n) =>
+      isLangChainType(n) &&
+      n.type.toLowerCase().includes("vectorstore") &&
+      isWriteOperation(n),
+    shape: () => ({
+      stub: true,
+      ids: [`vec-${randomId()}`],
+      ok: true,
+    }),
+  },
+
   // ─── Generic fallback ────────────────────────────────────────────
   {
     matches: () => true,
@@ -265,4 +401,41 @@ export function isWriteOperation(n: N8nNode): boolean {
 
 function stringify(v: unknown): string {
   return typeof v === "string" ? v : v == null ? "" : String(v);
+}
+
+const SQL_DB_TYPES = new Set([
+  "n8n-nodes-base.postgres",
+  "n8n-nodes-base.mySql",
+  "n8n-nodes-base.microsoftSql",
+  "n8n-nodes-base.mssql",
+  "n8n-nodes-base.crateDb",
+  "n8n-nodes-base.timescaleDb",
+  "n8n-nodes-base.questDb",
+  "n8n-nodes-base.snowflake",
+  "n8n-nodes-base.clickhouse",
+  "n8n-nodes-base.sqlite",
+]);
+
+function isSqlDatabaseNode(n: N8nNode): boolean {
+  return SQL_DB_TYPES.has(n.type);
+}
+
+// executeQuery hides intent in raw SQL. Heuristic: if the query starts
+// with INSERT/UPDATE/DELETE/CREATE/DROP/ALTER/TRUNCATE/MERGE, treat as
+// a write. SELECT/WITH/SHOW/EXPLAIN/DESC stay real. If we can't tell,
+// err on the safe side (stub).
+function isQueryWriteIntent(n: N8nNode): boolean {
+  const op = String(n.parameters?.operation ?? "").toLowerCase();
+  if (op !== "executequery" && op !== "execute") return false;
+  const sql = String(n.parameters?.query ?? "")
+    .trim()
+    .toLowerCase();
+  if (!sql) return true; // can't tell → stub
+  return /^(insert|update|delete|create|drop|alter|truncate|merge|replace|grant|revoke)/.test(
+    sql,
+  );
+}
+
+function isLangChainType(n: N8nNode): boolean {
+  return n.type.includes("n8n-nodes-langchain.");
 }
