@@ -97,7 +97,10 @@ function NodeCheckRow({
   resolveRaw?: (template: string) => unknown;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const hasDetail = !preRun && check.status === "fired";
+  // Allow expanding any post-run row, not just fired ones. Skipped /
+  // errored nodes still have parameters worth inspecting, and showing
+  // the empty INPUT/OUTPUT panes makes it obvious nothing flowed through.
+  const hasDetail = !preRun;
 
   // When this row becomes the selected one (e.g. clicked from the graph),
   // scroll it into view if offscreen. Expansion is driven by parent state.
