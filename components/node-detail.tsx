@@ -265,10 +265,15 @@ function SingleItemList({ item }: { item: Record<string, unknown> }) {
 
 // Single key/value row in the SingleItemList. If the value is an object
 // or array, the row becomes click-to-expand and renders children inline
-// below at +1 indent depth. Recursive — handles arbitrary nesting.
+// below at +1 indent depth. Arrays of homogenous-shaped objects get an
+// extra "table" toggle so a 200-row `leads` array doesn't have to be
+// scrolled as 200 expandable [0]/[1]/… rows.
 function KvRow({ k, v, depth }: { k: string; v: unknown; depth: number }) {
   const nestable = isNestable(v);
   const [open, setOpen] = useState(false);
+  const tableEligible =
+    Array.isArray(v) && v.length > 1 && canRenderAsTable(v as unknown[]);
+  const [asTable, setAsTable] = useState(tableEligible);
   const keyIndent = depth * 14;
   if (!nestable) {
     return (
@@ -287,10 +292,17 @@ function KvRow({ k, v, depth }: { k: string; v: unknown; depth: number }) {
     : Object.entries(v as Record<string, unknown>);
   return (
     <>
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen((o) => !o)}
-        className="w-full text-left grid grid-cols-[180px_1fr] gap-3 px-2 py-[6px] min-w-0 bg-transparent border-0 cursor-pointer font-mono text-[12px] hover:bg-[var(--panel-soft-2)]"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((o) => !o);
+          }
+        }}
+        className="w-full grid grid-cols-[180px_1fr] gap-3 px-2 py-[6px] min-w-0 cursor-pointer hover:bg-[var(--panel-soft-2)] font-mono text-[12px]"
       >
         <div
           className="text-[var(--muted)] break-words flex items-center gap-1"
@@ -299,9 +311,31 @@ function KvRow({ k, v, depth }: { k: string; v: unknown; depth: number }) {
           <span className="text-[var(--muted-2)] inline-block w-[10px]">{open ? "▾" : "▸"}</span>
           <span>{k}</span>
         </div>
-        <div className="min-w-0 break-words text-[var(--muted)] italic">{summary(v)}</div>
-      </button>
-      {open && (
+        <div className="min-w-0 break-words text-[var(--muted)] italic flex items-center justify-between gap-2">
+          <span className="truncate">{summary(v)}</span>
+          {tableEligible && open && (
+            <span
+              className="inline-flex rounded border border-[var(--border)] overflow-hidden normal-case not-italic"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <PaneToggle active={!asTable} onClick={() => setAsTable(false)}>
+                List
+              </PaneToggle>
+              <PaneToggle active={asTable} onClick={() => setAsTable(true)}>
+                Table
+              </PaneToggle>
+            </span>
+          )}
+        </div>
+      </div>
+      {open && tableEligible && asTable && (
+        <div className="px-2 pb-2" style={{ paddingLeft: keyIndent + 14 }}>
+          <div className="bg-[var(--panel)] border border-[var(--border)] rounded overflow-hidden">
+            <ItemsTable items={v as Array<Record<string, unknown>>} />
+          </div>
+        </div>
+      )}
+      {open && !(tableEligible && asTable) && (
         <div className="divide-y divide-[var(--border)]">
           {childEntries.map(([ck, cv]) => (
             <KvRow key={ck} k={ck} v={cv} depth={depth + 1} />
