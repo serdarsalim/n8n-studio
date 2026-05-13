@@ -55,7 +55,18 @@ export interface TransformResult {
   testWebhookPath: string;
 }
 
-export function transformWorkflow(source: N8nWorkflow): TransformResult {
+export interface TransformOpts {
+  // Map of source-workflow-id → mirror-workflow-id, populated by the
+  // lifecycle layer after recursively pushing subworkflows. When a
+  // referenced sub has a mirror, the executeWorkflow node is rewired
+  // to point at the mirror instead of being stubbed.
+  subMirrors?: Map<string, string>;
+}
+
+export function transformWorkflow(
+  source: N8nWorkflow,
+  opts: TransformOpts = {},
+): TransformResult {
   const webhookNodes = source.nodes.filter(
     (n) =>
       n.type === "n8n-nodes-base.webhook" ||
@@ -66,7 +77,7 @@ export function transformWorkflow(source: N8nWorkflow): TransformResult {
     // First webhook by document order is the firing target; any others
     // (e.g. wait-resume callbacks) still get the -test suffix so they
     // don't collide with prod webhook paths.
-    return transformWithExistingWebhook(source, webhookNodes);
+    return transformWithExistingWebhook(source, webhookNodes, opts);
   }
 
   // No webhook trigger — inject a synthetic one so we can fire the workflow.
@@ -76,18 +87,22 @@ export function transformWorkflow(source: N8nWorkflow): TransformResult {
       "This workflow has no trigger node — nothing to fire.",
     );
   }
-  return transformWithSyntheticWebhook(source, triggerNode);
+  return transformWithSyntheticWebhook(source, triggerNode, opts);
 }
 
 function transformWithExistingWebhook(
   source: N8nWorkflow,
   webhookNodes: N8nNode[],
+  opts: TransformOpts,
 ): TransformResult {
   const webhookSet = new Set(webhookNodes);
   const primaryWebhook = webhookNodes[0];
   const stubbedNodes: string[] = [];
   const transformedNodes: N8nNode[] = source.nodes.map((node) => {
     if (webhookSet.has(node)) return transformWebhookTrigger(node);
+    if (node.type === "n8n-nodes-base.executeWorkflow") {
+      return transformExecuteWorkflow(node, opts.subMirrors, stubbedNodes);
+    }
     if (shouldStub(node)) {
       stubbedNodes.push(node.name);
       return stubNode(node);
@@ -126,12 +141,16 @@ function transformWithExistingWebhook(
 function transformWithSyntheticWebhook(
   source: N8nWorkflow,
   trigger: N8nNode,
+  opts: TransformOpts,
 ): TransformResult {
   const stubbedNodes: string[] = [];
 
   // Walk every node EXCEPT the trigger; trigger gets its own rewrite below.
   const baseNodes: N8nNode[] = source.nodes.map((node) => {
     if (node === trigger) return node;
+    if (node.type === "n8n-nodes-base.executeWorkflow") {
+      return transformExecuteWorkflow(node, opts.subMirrors, stubbedNodes);
+    }
     if (shouldStub(node)) {
       stubbedNodes.push(node.name);
       return stubNode(node);
@@ -355,6 +374,63 @@ function transformWebhookTrigger(node: N8nNode): N8nNode {
       ? `${node.webhookId}${TEST_PATH_SUFFIX}`
       : node.webhookId,
   };
+}
+
+// Recursive subworkflow handling. If we successfully pushed a test mirror
+// for the referenced workflow, rewire executeWorkflow to point at the
+// mirror. Otherwise stub it (current safety default).
+function transformExecuteWorkflow(
+  node: N8nNode,
+  subMirrors: Map<string, string> | undefined,
+  stubbedNodes: string[],
+): N8nNode {
+  const sourceId = readExecuteWorkflowRef(node);
+  const mirrorId = sourceId && subMirrors?.get(sourceId);
+  if (!sourceId || !mirrorId) {
+    stubbedNodes.push(node.name);
+    return stubNode(node);
+  }
+  return writeExecuteWorkflowRef(node, mirrorId);
+}
+
+// executeWorkflow's workflowId param shape varies by node version. Older
+// versions use a plain string; newer use a resourceLocator object
+// `{ __rl: true, value, mode }`. Handle both.
+export function readExecuteWorkflowRef(node: N8nNode): string | null {
+  const w = (node.parameters as Record<string, unknown> | undefined)?.workflowId;
+  if (!w) return null;
+  if (typeof w === "string") return w;
+  if (typeof w === "object") {
+    const v = (w as Record<string, unknown>).value;
+    if (typeof v === "string") return v;
+  }
+  return null;
+}
+
+function writeExecuteWorkflowRef(node: N8nNode, mirrorId: string): N8nNode {
+  const w = (node.parameters as Record<string, unknown> | undefined)?.workflowId;
+  const nextParams = { ...(node.parameters ?? {}) } as Record<string, unknown>;
+  if (typeof w === "object" && w !== null) {
+    // resourceLocator — preserve __rl/mode, swap value.
+    nextParams.workflowId = { ...(w as Record<string, unknown>), value: mirrorId };
+  } else {
+    nextParams.workflowId = mirrorId;
+  }
+  return { ...node, parameters: nextParams };
+}
+
+// Walk the source for every executeWorkflow node that references another
+// workflow by ID. The lifecycle layer uses this to recursively push the
+// referenced workflows as their own test mirrors.
+export function extractSubworkflowIds(source: N8nWorkflow): string[] {
+  const ids = new Set<string>();
+  for (const n of source.nodes) {
+    if (n.disabled) continue;
+    if (n.type !== "n8n-nodes-base.executeWorkflow") continue;
+    const id = readExecuteWorkflowRef(n);
+    if (id) ids.add(id);
+  }
+  return [...ids];
 }
 
 function stubNode(node: N8nNode): N8nNode {

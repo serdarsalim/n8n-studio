@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getWorkflow, listExecutions, readCredsFromHeaders } from "@/lib/n8n";
-import { pushTestWorkflow } from "@/lib/test-mode/lifecycle";
-import { transformWorkflow } from "@/lib/test-mode/transformer";
+import { pushTestWorkflowTree } from "@/lib/test-mode/lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +9,9 @@ export const dynamic = "force-dynamic";
 //
 // Mirrors /api/run, but runs against a transformed copy of the source
 // workflow: every side-effect node replaced with a Set stub, webhook path
-// suffixed `-test`. Source workflow is never touched.
+// suffixed `-test`, and every executeWorkflow reference recursively
+// transformed and pushed as its own test mirror. Source workflow is
+// never touched.
 export async function POST(req: Request) {
   const creds = readCredsFromHeaders(req.headers);
   if (!creds) return NextResponse.json({ error: "Missing n8n credentials" }, { status: 401 });
@@ -37,29 +38,21 @@ export async function POST(req: Request) {
     );
   }
 
-  // 2. Transform
-  let result;
+  // 2. Recursively transform + push (handles executeWorkflow subs too)
+  let tree;
   try {
-    result = transformWorkflow(source);
-  } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
-  }
-
-  // 3. Push the test mirror
-  let testWorkflowId: string;
-  let created: boolean;
-  try {
-    const pushed = await pushTestWorkflow(creds, result.workflow);
-    testWorkflowId = pushed.id;
-    created = pushed.created;
+    tree = await pushTestWorkflowTree(creds, source);
   } catch (e) {
     return NextResponse.json(
       { error: `Failed to push test workflow: ${(e as Error).message}` },
       { status: 502 },
     );
   }
+  const testWorkflowId = tree.id;
+  const created = tree.created;
+  const result = tree.result;
 
-  // 4. Compute webhook URL and fire it
+  // 3. Compute webhook URL and fire it
   const webhookUrl = `${creds.url}/webhook/${result.testWebhookPath}`;
   const firedAt = Date.now();
   let webhookResponse: unknown = null;
@@ -111,6 +104,7 @@ export async function POST(req: Request) {
     }
   }
 
+  const subCount = Object.keys(tree.subMirrors).length;
   return NextResponse.json({
     ok: true,
     executionId,
@@ -119,6 +113,8 @@ export async function POST(req: Request) {
     testWebhookPath: result.testWebhookPath,
     stubbedCount: result.stubbedCount,
     stubbedNodes: result.stubbedNodes,
+    subWorkflowMirrorCount: subCount,
+    subWorkflowMirrors: tree.subMirrors,
     webhookResponse,
     note: executionId
       ? undefined

@@ -183,9 +183,14 @@ export default function Page() {
           payload: inputJson,
         });
         executionId = result.executionId;
+        const subNote =
+          result.subWorkflowMirrorCount > 0
+            ? ` · ${result.subWorkflowMirrorCount} sub-mirror${result.subWorkflowMirrorCount === 1 ? "" : "s"}`
+            : "";
         setTestRunNote(
           `Stubbed ${result.stubbedCount} node${result.stubbedCount === 1 ? "" : "s"}` +
-            (result.testWorkflowCreated ? " · created test mirror" : " · reused test mirror"),
+            (result.testWorkflowCreated ? " · created test mirror" : " · reused test mirror") +
+            subNote,
         );
       } else {
         const webhookUrl = findWebhookUrl(workflow, settings.n8nUrl)!;

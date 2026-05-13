@@ -255,6 +255,8 @@ export interface TestRunResult {
   testWebhookPath: string;
   stubbedCount: number;
   stubbedNodes: string[];
+  subWorkflowMirrorCount: number;
+  subWorkflowMirrors: Record<string, string>;
   webhookResponse: unknown;
   note?: string;
 }
@@ -279,6 +281,8 @@ export async function apiTestRun(
     testWebhookPath: data.testWebhookPath ?? "",
     stubbedCount: data.stubbedCount ?? 0,
     stubbedNodes: data.stubbedNodes ?? [],
+    subWorkflowMirrorCount: data.subWorkflowMirrorCount ?? 0,
+    subWorkflowMirrors: data.subWorkflowMirrors ?? {},
     webhookResponse: data.webhookResponse,
     note: data.note,
   };
