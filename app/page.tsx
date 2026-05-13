@@ -12,6 +12,7 @@ import { WorkflowModal } from "@/components/modals/workflow-modal";
 import {
   apiGetExecution,
   apiGetWorkflow,
+  apiResolveTestMirror,
   apiRun,
   apiTestRun,
   bumpExecAccess,
@@ -55,6 +56,10 @@ export default function Page() {
   const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
   const [testMode, setTestModeState] = useState(false);
   const [testRunNote, setTestRunNote] = useState<string | null>(null);
+  // Mirror workflow ID for the currently-loaded source. Populated after a
+  // test run OR by resolving the mirror by name when test mode toggles on.
+  // Used to point the Executions modal at test runs instead of prod runs.
+  const [testMirrorId, setTestMirrorId] = useState<string | null>(null);
 
   // Hydrate persisted state.
   const [hydrated, setHydrated] = useState(false);
@@ -77,6 +82,22 @@ export default function Page() {
     writePrefs({ ...current, testMode: next });
     setTestRunNote(null);
   };
+
+  // Resolve the test mirror ID whenever test mode flips on or the loaded
+  // workflow changes. Lets the Executions modal point at the mirror's
+  // runs instead of the source workflow's runs.
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!testMode || !workflow || !settings.n8nUrl || !settings.apiKey) {
+      setTestMirrorId(null);
+      return;
+    }
+    let cancelled = false;
+    apiResolveTestMirror(settings, workflow.name)
+      .then(({ id }) => { if (!cancelled) setTestMirrorId(id); })
+      .catch(() => { if (!cancelled) setTestMirrorId(null); });
+    return () => { cancelled = true; };
+  }, [hydrated, testMode, workflow, settings.n8nUrl, settings.apiKey]);
 
   // Persist working state on any change — but only after hydration so we
   // don't overwrite stored values with the empty initial state on mount.
@@ -183,6 +204,7 @@ export default function Page() {
           payload: inputJson,
         });
         executionId = result.executionId;
+        if (result.testWorkflowId) setTestMirrorId(result.testWorkflowId);
         const subNote =
           result.subWorkflowMirrorCount > 0
             ? ` · ${result.subWorkflowMirrorCount} sub-mirror${result.subWorkflowMirrorCount === 1 ? "" : "s"}`
@@ -422,8 +444,17 @@ export default function Page() {
         open={modal === "executions"}
         onClose={() => setModal(null)}
         settings={settings}
-        workflowId={workflow?.id ?? null}
-        workflowName={workflow?.name ?? ""}
+        workflowId={testMode ? testMirrorId : (workflow?.id ?? null)}
+        workflowName={
+          testMode && workflow
+            ? `(test) ${workflow.name}`
+            : (workflow?.name ?? "")
+        }
+        emptyHintWhenMissing={
+          testMode && !testMirrorId
+            ? "No test mirror yet. Run once in test mode to create it."
+            : undefined
+        }
         onPick={async (executionId) => {
           setRunError(null);
           setModal(null);

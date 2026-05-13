@@ -288,6 +288,18 @@ export async function apiTestRun(
   };
 }
 
+// Look up the test mirror's workflow ID for a given source workflow,
+// without pushing or modifying anything. Returns null if no mirror exists.
+export async function apiResolveTestMirror(
+  s: AppSettings,
+  sourceWorkflowName: string,
+): Promise<{ id: string | null }> {
+  const list = await apiListWorkflows(s);
+  const target = `(test) ${sourceWorkflowName}`;
+  const found = list.find((w) => w.name === target);
+  return { id: found?.id ?? null };
+}
+
 export async function apiDeleteTestMirror(
   s: AppSettings,
   workflowId: string,
