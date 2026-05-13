@@ -1,30 +1,39 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  apiListExecutions,
   createFixture,
   deleteFixture,
+  type ExecutionSummary,
   type Fixture,
   readFixtures,
   updateFixture,
 } from "@/lib/client";
+import type { AppSettings } from "@/lib/types";
 import { Modal } from "./modal";
 
 export function InputModal({
   open,
   onClose,
   workflowId,
+  testMirrorId,
+  settings,
   initialText,
   selectedFixtureId,
   onChange,
   onSelectFixture,
+  onLoadFromExecution,
 }: {
   open: boolean;
   onClose: () => void;
   workflowId: string | null;
+  testMirrorId: string | null;
+  settings: AppSettings;
   initialText: string;
   selectedFixtureId: string | null;
   onChange: (text: string, parsed: unknown) => void;
   onSelectFixture: (id: string | null) => void;
+  onLoadFromExecution: (executionId: string) => Promise<void>;
 }) {
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [text, setText] = useState(initialText);
@@ -118,11 +127,20 @@ export function InputModal({
     <Modal open={open} onClose={onClose} title="Input" wide>
       <div className="flex gap-3 h-full min-h-[360px]">
         <aside className="w-[300px] flex-shrink-0 flex flex-col border border-[var(--border)] rounded-md bg-[var(--panel-soft)] overflow-hidden">
+          <RecentExecutionsSection
+            workflowId={workflowId}
+            testMirrorId={testMirrorId}
+            settings={settings}
+            onPick={async (id) => {
+              await onLoadFromExecution(id);
+              refreshFixtures();
+            }}
+          />
           <button
             type="button"
             onClick={handleNew}
             disabled={!workflowId}
-            className="text-left text-[12px] text-[var(--blue)] hover:text-[var(--text)] px-3 py-2 border-b border-[var(--border)] bg-transparent border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            className="text-left text-[12px] text-[var(--blue)] hover:text-[var(--text)] px-3 py-2 border-b border-t border-[var(--border)] bg-transparent border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             + New fixture
           </button>
@@ -294,4 +312,156 @@ function uniqueName(base: string, fixtures: Fixture[]): string {
   let n = 2;
   while (names.has(`${base} ${n}`)) n++;
   return `${base} ${n}`;
+}
+
+function RecentExecutionsSection({
+  workflowId,
+  testMirrorId,
+  settings,
+  onPick,
+}: {
+  workflowId: string | null;
+  testMirrorId: string | null;
+  settings: AppSettings;
+  onPick: (executionId: string) => Promise<void>;
+}) {
+  const [scope, setScope] = useState<"live" | "test">("live");
+  const [items, setItems] = useState<ExecutionSummary[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [picking, setPicking] = useState<string | null>(null);
+
+  const activeId = scope === "live" ? workflowId : testMirrorId;
+
+  useEffect(() => {
+    if (!activeId || !settings.n8nUrl || !settings.apiKey) {
+      setItems(null);
+      setError(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    apiListExecutions(settings, activeId, 10)
+      .then((list) => { if (!cancelled) setItems(list); })
+      .catch((e) => { if (!cancelled) setError((e as Error).message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeId, settings.n8nUrl, settings.apiKey]);
+
+  return (
+    <div className="border-b border-[var(--border)]">
+      <div className="flex items-center justify-between px-3 py-[6px]">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--muted)]">
+          Recent executions
+        </span>
+        <div className="inline-flex rounded border border-[var(--border)] overflow-hidden">
+          <SegBtn active={scope === "live"} onClick={() => setScope("live")}>Live</SegBtn>
+          <SegBtn active={scope === "test"} onClick={() => setScope("test")}>Test</SegBtn>
+        </div>
+      </div>
+      <div className="max-h-[140px] overflow-y-auto">
+        {!activeId && scope === "test" && (
+          <div className="text-[11px] text-[var(--muted-2)] px-3 pb-3 italic">
+            No test mirror yet. Run once in test mode to create it.
+          </div>
+        )}
+        {!activeId && scope === "live" && (
+          <div className="text-[11px] text-[var(--muted-2)] px-3 pb-3 italic">
+            Load a workflow first.
+          </div>
+        )}
+        {activeId && loading && (
+          <div className="text-[11px] text-[var(--muted-2)] px-3 pb-3 italic">Loading…</div>
+        )}
+        {activeId && !loading && error && (
+          <div className="text-[11px] text-[var(--red-text)] px-3 pb-3">{error}</div>
+        )}
+        {activeId && !loading && !error && items && items.length === 0 && (
+          <div className="text-[11px] text-[var(--muted-2)] px-3 pb-3 italic">
+            No {scope} executions yet.
+          </div>
+        )}
+        {activeId && !loading && !error && items && items.length > 0 && (
+          <div className="pb-1">
+            {items.map((e) => (
+              <button
+                key={e.id}
+                type="button"
+                disabled={picking !== null}
+                onClick={async () => {
+                  setPicking(e.id);
+                  try { await onPick(e.id); } finally { setPicking(null); }
+                }}
+                className="group w-full flex items-center gap-2 px-3 py-[5px] text-[11px] text-left bg-transparent border-0 cursor-pointer hover:bg-[var(--panel-soft-2)] disabled:opacity-50 disabled:cursor-default"
+                title={`Load input from #${e.id}`}
+              >
+                <StatusDot status={e.status} />
+                <span className="font-mono text-[var(--text)]">#{e.id}</span>
+                <span className="text-[var(--muted-2)] truncate flex-1">
+                  {fmtExecRow(e)}
+                </span>
+                {picking === e.id && (
+                  <span className="text-[var(--muted)] italic">…</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SegBtn({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-[10px] uppercase tracking-[0.3px] px-[6px] py-[1px] cursor-pointer border-0 ${
+        active
+          ? "bg-[var(--panel-soft-2)] text-[var(--text)] font-semibold"
+          : "bg-transparent text-[var(--muted)] hover:text-[var(--text)]"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function StatusDot({ status }: { status?: string }) {
+  const color =
+    status === "success"
+      ? "bg-[var(--green)]"
+      : status === "error" || status === "canceled"
+        ? "bg-[var(--red)]"
+        : status === "running" || status === "waiting" || status === "new"
+          ? "bg-[var(--blue)]"
+          : "bg-[var(--muted-2)]";
+  return <span className={`inline-block w-[6px] h-[6px] rounded-full flex-shrink-0 ${color}`} />;
+}
+
+function fmtExecRow(e: ExecutionSummary): string {
+  const when = e.startedAt
+    ? relativeTime(Date.parse(e.startedAt))
+    : "—";
+  const status = e.status ? ` · ${e.status}` : "";
+  return `${when}${status}`;
+}
+
+function relativeTime(t: number): string {
+  if (!t) return "—";
+  const delta = Math.max(0, Date.now() - t) / 1000;
+  if (delta < 60) return `${Math.floor(delta)}s ago`;
+  if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
+  if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
+  return `${Math.floor(delta / 86400)}d ago`;
 }

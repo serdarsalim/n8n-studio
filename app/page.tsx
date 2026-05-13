@@ -152,6 +152,32 @@ export default function Page() {
     return { label: status ?? "Unknown", sub: firedSub, ok: null };
   })();
 
+  // Load JUST the input from a past execution, without overwriting the
+  // current verdict. Used by the Input modal's recent-executions picker.
+  const loadInputFromExecution = useCallback(
+    async (executionId: string) => {
+      if (!workflow) return;
+      try {
+        const exec = await apiGetExecution(settings, executionId);
+        const extracted = extractTriggerInput(workflow, exec);
+        if (!extracted) return;
+        setInputText(extracted.text);
+        setInputJson(extracted.json);
+        const fixture = upsertFixtureFromExecution(
+          workflow.id,
+          exec.id,
+          `#${exec.id}`,
+          extracted.text,
+          extracted.json,
+        );
+        setSelectedFixtureId(fixture.id);
+      } catch (e) {
+        setRunError(`Could not load input from execution ${executionId}: ${(e as Error).message}`);
+      }
+    },
+    [workflow, settings],
+  );
+
   // Setting an execution should also surface the input that produced it,
   // so the Input node reflects "what made this happen."
   const applyExecution = useCallback(
@@ -432,6 +458,8 @@ export default function Page() {
         open={modal === "input"}
         onClose={() => setModal(null)}
         workflowId={workflow?.id ?? null}
+        testMirrorId={testMirrorId}
+        settings={settings}
         initialText={inputText}
         selectedFixtureId={selectedFixtureId}
         onChange={(text, parsed) => {
@@ -439,6 +467,7 @@ export default function Page() {
           setInputJson(parsed);
         }}
         onSelectFixture={setSelectedFixtureId}
+        onLoadFromExecution={loadInputFromExecution}
       />
       <ExecutionsModal
         open={modal === "executions"}
