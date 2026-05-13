@@ -746,6 +746,27 @@ function ParamValue({
     // quotes). Expression strings resolve when !showRaw.
     const isExpr = !!resolve && hasExpression(value);
     const display = isExpr && !showRaw ? resolve!(value) : value;
+    // If the (possibly resolved) value is a JSON string, render it as a
+    // structured key/value list with nested-table support for arrays of
+    // objects. Skipped when showRaw is on — the raw expression is what
+    // the user wants verbatim. Arrays-of-objects use the top-level
+    // ItemsTable; scalars/arrays-of-scalars fall back to JsonTree.
+    if (!showRaw) {
+      const parsed = tryParseJson(display);
+      if (parsed !== UNPARSEABLE) {
+        if (
+          Array.isArray(parsed) &&
+          canRenderAsTable(parsed as unknown[]) &&
+          parsed.length > 1
+        ) {
+          return <ItemsTable items={parsed as Array<Record<string, unknown>>} />;
+        }
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          return <SingleItemList item={parsed as Record<string, unknown>} />;
+        }
+        return <JsonTree value={parsed} />;
+      }
+    }
     return (
       <div className="font-mono text-[12px] break-words text-[var(--text)]">{display}</div>
     );
@@ -755,6 +776,25 @@ function ParamValue({
     return <JsonTree value={resolveDeep(value, showRaw ? undefined : resolve)} />;
   }
   return <JsonTree value={value} />;
+}
+
+const UNPARSEABLE = Symbol("unparseable");
+
+// Looser JSON parse: only try if the string looks like an object/array,
+// and only return the parsed value if it's a non-trivial structure.
+// Avoids over-eagerly turning short strings like "5" into bare numbers.
+function tryParseJson(s: string): unknown {
+  const trimmed = s.trim();
+  if (trimmed.length < 2) return UNPARSEABLE;
+  const first = trimmed[0];
+  if (first !== "{" && first !== "[") return UNPARSEABLE;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object") return parsed;
+    return UNPARSEABLE;
+  } catch {
+    return UNPARSEABLE;
+  }
 }
 
 // Walk a value tree and replace any string with {{ ... }} expressions
