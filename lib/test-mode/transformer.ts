@@ -61,12 +61,25 @@ export function transformWorkflow(source: N8nWorkflow): TransformResult {
       n.type === "n8n-nodes-base.webhook" ||
       n.type.endsWith(".Webhook"),
   );
-  if (!webhookNode) {
-    throw new Error(
-      "Test mode requires a Webhook trigger. This workflow doesn't have one.",
-    );
+
+  if (webhookNode) {
+    return transformWithExistingWebhook(source, webhookNode);
   }
 
+  // No webhook trigger — inject a synthetic one so we can fire the workflow.
+  const triggerNode = findFallbackTrigger(source);
+  if (!triggerNode) {
+    throw new Error(
+      "This workflow has no trigger node — nothing to fire.",
+    );
+  }
+  return transformWithSyntheticWebhook(source, triggerNode);
+}
+
+function transformWithExistingWebhook(
+  source: N8nWorkflow,
+  webhookNode: N8nNode,
+): TransformResult {
   const stubbedNodes: string[] = [];
   const transformedNodes: N8nNode[] = source.nodes.map((node) => {
     if (node === webhookNode) return transformWebhookTrigger(node);
@@ -98,6 +111,152 @@ export function transformWorkflow(source: N8nWorkflow): TransformResult {
     webhookNode,
     testWebhookPath: testPath,
   };
+}
+
+// For Manual/Schedule/Cron/etc triggers: prepend a synthetic Webhook node
+// (so we can fire externally) and rewrite the original trigger as a Set
+// node that unwraps `$json.body` so downstream `$json.foo` /
+// `$('Original Trigger Name').item.json.foo` references see the user's
+// payload exactly as if the original trigger had produced it.
+function transformWithSyntheticWebhook(
+  source: N8nWorkflow,
+  trigger: N8nNode,
+): TransformResult {
+  const stubbedNodes: string[] = [];
+
+  // Walk every node EXCEPT the trigger; trigger gets its own rewrite below.
+  const baseNodes: N8nNode[] = source.nodes.map((node) => {
+    if (node === trigger) return node;
+    if (shouldStub(node)) {
+      stubbedNodes.push(node.name);
+      return stubNode(node);
+    }
+    return node;
+  });
+
+  // Rewrite the original trigger as a Set that emits the webhook body.
+  // Preserving id/name/position keeps `$('Trigger Name')` references
+  // resolving and the editor view tidy.
+  const unwrappedTrigger: N8nNode = {
+    ...trigger,
+    type: "n8n-nodes-base.set",
+    typeVersion: 3.4,
+    parameters: {
+      mode: "raw",
+      jsonOutput: "={{ $json.body }}",
+      options: {},
+    },
+  };
+  // Drop credentials if the original trigger had any.
+  delete (unwrappedTrigger as unknown as Record<string, unknown>).credentials;
+
+  // Synthetic webhook lives just left of the original trigger position so
+  // the editor view stays readable.
+  const [x, y] = trigger.position ?? [0, 0];
+  const testPath = synthPathFor(source, trigger);
+  const syntheticWebhookName = pickUniqueName(source, "Test Trigger");
+  const syntheticWebhook: N8nNode = {
+    id: `synthetic-webhook-${randomSuffix()}`,
+    name: syntheticWebhookName,
+    type: "n8n-nodes-base.webhook",
+    typeVersion: 2,
+    position: [x - 220, y],
+    parameters: {
+      httpMethod: "POST",
+      path: testPath,
+      responseMode: "lastNode",
+      options: {},
+    },
+    webhookId: testPath,
+  };
+
+  const nodes: N8nNode[] = [
+    syntheticWebhook,
+    ...baseNodes.map((n) => (n.name === trigger.name ? unwrappedTrigger : n)),
+  ];
+
+  // Connect: synthetic webhook → unwrapped trigger. Everything else stays.
+  const connections: Record<string, unknown> = {
+    ...(source.connections ?? {}),
+    [syntheticWebhookName]: {
+      main: [[{ node: trigger.name, type: "main", index: 0 }]],
+    },
+  };
+
+  const mirror: N8nWorkflow = {
+    ...source,
+    name: `${TEST_NAME_PREFIX}${source.name}`,
+    active: true,
+    nodes,
+    connections,
+  };
+
+  return {
+    workflow: mirror,
+    stubbedCount: stubbedNodes.length,
+    stubbedNodes,
+    webhookNode: syntheticWebhook,
+    testWebhookPath: testPath,
+  };
+}
+
+function findFallbackTrigger(source: N8nWorkflow): N8nNode | undefined {
+  // A trigger is a non-disabled, non-cosmetic node with no incoming edges.
+  // If multiple, prefer manualTrigger > scheduleTrigger > anything else.
+  const inDegree = new Map<string, number>();
+  for (const n of source.nodes) inDegree.set(n.name, 0);
+  const conns = (source.connections ?? {}) as Record<
+    string,
+    { main?: Array<Array<{ node: string }>> } | undefined
+  >;
+  for (const fromName of Object.keys(conns)) {
+    const branches = conns[fromName]?.main ?? [];
+    for (const branch of branches) {
+      for (const t of branch ?? []) {
+        if (inDegree.has(t.node)) inDegree.set(t.node, (inDegree.get(t.node) ?? 0) + 1);
+      }
+    }
+  }
+  const candidates = source.nodes.filter(
+    (n) =>
+      !n.disabled &&
+      !isCosmetic(n.type) &&
+      (inDegree.get(n.name) ?? 0) === 0,
+  );
+  const score = (n: N8nNode): number => {
+    if (n.type === "n8n-nodes-base.manualTrigger") return 3;
+    if (n.type === "n8n-nodes-base.scheduleTrigger" || n.type === "n8n-nodes-base.cron") return 2;
+    if (n.type.toLowerCase().endsWith("trigger")) return 1;
+    return 0;
+  };
+  return candidates.sort((a, b) => score(b) - score(a))[0];
+}
+
+function isCosmetic(type: string): boolean {
+  return type.endsWith(".stickyNote") || type.endsWith(".StickyNote");
+}
+
+function synthPathFor(source: N8nWorkflow, trigger: N8nNode): string {
+  const slug = (source.name || "workflow")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+  return `${slug}-${trigger.name.replace(/\s+/g, "-").toLowerCase()}${TEST_PATH_SUFFIX}`;
+}
+
+function pickUniqueName(source: N8nWorkflow, base: string): string {
+  const taken = new Set(source.nodes.map((n) => n.name));
+  if (!taken.has(base)) return base;
+  for (let i = 2; i < 1000; i++) {
+    const candidate = `${base} ${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${base} ${Date.now()}`;
+}
+
+function randomSuffix(): string {
+  return Math.random().toString(36).slice(2, 10);
 }
 
 function shouldStub(node: N8nNode): boolean {
