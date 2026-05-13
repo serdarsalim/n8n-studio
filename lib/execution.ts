@@ -522,16 +522,49 @@ export function extractTriggerInput(
   workflow: N8nWorkflow,
   execution: N8nExecution,
 ): { text: string; json: unknown } | null {
-  const trigger = findWebhookNode(workflow);
-  if (!trigger) return null;
   const runData = execution.data?.resultData?.runData ?? {};
-  const first = runData[trigger.name]?.[0]?.data?.main?.[0]?.[0];
-  if (!first || typeof first !== "object") return null;
-  const rec = first as Record<string, unknown>;
-  const json = rec.json;
-  if (json == null) return null;
-  const body = (json as Record<string, unknown>).body;
-  const payload =
-    body && typeof body === "object" && !Array.isArray(body) ? body : json;
-  return { text: JSON.stringify(payload, null, 2), json: payload };
+
+  // Try the source workflow's webhook node name first.
+  const sourceWebhook = findWebhookNode(workflow);
+  const candidates: string[] = [];
+  if (sourceWebhook?.name && runData[sourceWebhook.name]) {
+    candidates.push(sourceWebhook.name);
+  }
+
+  // Fallback: a test mirror's synthetic webhook is named "Test Trigger"
+  // (or the picked unique-name variant). Walk runData and grab whichever
+  // entry looks like the trigger run — i.e. the one with no `source`
+  // backlinks. The trigger is always upstream of everything else.
+  if (candidates.length === 0) {
+    for (const [name, runs] of Object.entries(runData)) {
+      const firstRun = runs?.[0];
+      if (!firstRun) continue;
+      const src = (firstRun as { source?: unknown[] }).source;
+      if (!src || (Array.isArray(src) && src.length === 0)) {
+        candidates.push(name);
+      }
+    }
+  }
+
+  for (const name of candidates) {
+    const first = runData[name]?.[0]?.data?.main?.[0]?.[0];
+    if (!first || typeof first !== "object") continue;
+    const rec = first as Record<string, unknown>;
+    const json = rec.json;
+    if (json == null) continue;
+    // Unwrap `body` if this looks like a webhook envelope; otherwise the
+    // trigger output IS the payload (manual / schedule / sub trigger).
+    const maybeBody = (json as Record<string, unknown>).body;
+    const looksLikeWebhookEnvelope =
+      maybeBody &&
+      typeof maybeBody === "object" &&
+      !Array.isArray(maybeBody) &&
+      ("headers" in (json as Record<string, unknown>) ||
+        "query" in (json as Record<string, unknown>) ||
+        "webhookUrl" in (json as Record<string, unknown>));
+    const payload = looksLikeWebhookEnvelope ? maybeBody : json;
+    return { text: JSON.stringify(payload, null, 2), json: payload };
+  }
+
+  return null;
 }

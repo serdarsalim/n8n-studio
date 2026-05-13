@@ -330,6 +330,7 @@ function RecentExecutionsSection({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
+  const [lastLoadedId, setLastLoadedId] = useState<string | null>(null);
 
   const activeId = scope === "live" ? workflowId : testMirrorId;
 
@@ -390,10 +391,22 @@ function RecentExecutionsSection({
                 type="button"
                 disabled={picking !== null}
                 onClick={async () => {
+                  setError(null);
                   setPicking(e.id);
-                  try { await onPick(e.id); } finally { setPicking(null); }
+                  try {
+                    await onPick(e.id);
+                    setLastLoadedId(e.id);
+                  } catch (err) {
+                    setError((err as Error).message);
+                  } finally {
+                    setPicking(null);
+                  }
                 }}
-                className="group w-full flex items-center gap-2 px-3 py-[5px] text-[11px] text-left bg-transparent border-0 cursor-pointer hover:bg-[var(--panel-soft-2)] disabled:opacity-50 disabled:cursor-default"
+                className={`group w-full flex items-center gap-2 px-3 py-[5px] text-[11px] text-left border-0 cursor-pointer disabled:opacity-50 disabled:cursor-default border-l-2 ${
+                  lastLoadedId === e.id
+                    ? "bg-[var(--selected-bg)] border-[var(--selected-border)]"
+                    : "bg-transparent border-transparent hover:bg-[var(--panel-soft-2)]"
+                }`}
                 title={`Load input from #${e.id}`}
               >
                 <StatusDot status={e.status} />
@@ -401,9 +414,13 @@ function RecentExecutionsSection({
                 <span className="text-[var(--muted-2)] truncate flex-1">
                   {fmtExecRow(e)}
                 </span>
-                {picking === e.id && (
-                  <span className="text-[var(--muted)] italic">…</span>
-                )}
+                {picking === e.id ? (
+                  <span className="text-[var(--muted)] italic">loading…</span>
+                ) : lastLoadedId === e.id ? (
+                  <span className="text-[var(--selected-border)] text-[10px] font-semibold uppercase tracking-[0.3px]">
+                    loaded
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>

@@ -154,26 +154,27 @@ export default function Page() {
 
   // Load JUST the input from a past execution, without overwriting the
   // current verdict. Used by the Input modal's recent-executions picker.
+  // Throws on failure so the caller can render an inline error.
   const loadInputFromExecution = useCallback(
     async (executionId: string) => {
-      if (!workflow) return;
-      try {
-        const exec = await apiGetExecution(settings, executionId);
-        const extracted = extractTriggerInput(workflow, exec);
-        if (!extracted) return;
-        setInputText(extracted.text);
-        setInputJson(extracted.json);
-        const fixture = upsertFixtureFromExecution(
-          workflow.id,
-          exec.id,
-          `#${exec.id}`,
-          extracted.text,
-          extracted.json,
+      if (!workflow) throw new Error("Load a workflow first.");
+      const exec = await apiGetExecution(settings, executionId);
+      const extracted = extractTriggerInput(workflow, exec);
+      if (!extracted) {
+        throw new Error(
+          `Execution #${executionId} has no trigger input data to load.`,
         );
-        setSelectedFixtureId(fixture.id);
-      } catch (e) {
-        setRunError(`Could not load input from execution ${executionId}: ${(e as Error).message}`);
       }
+      setInputText(extracted.text);
+      setInputJson(extracted.json);
+      const fixture = upsertFixtureFromExecution(
+        workflow.id,
+        exec.id,
+        `#${exec.id}`,
+        extracted.text,
+        extracted.json,
+      );
+      setSelectedFixtureId(fixture.id);
     },
     [workflow, settings],
   );
