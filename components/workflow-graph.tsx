@@ -103,6 +103,12 @@ export function WorkflowGraph({
               : "var(--muted-2)";
         const dash = target && target.status !== "fired" ? "4 4" : undefined;
         const isOutgoingFromSelected = selectedName != null && e.fromName === selectedName;
+        // Glow looks great on longer edges but its halo (~5-10px) is
+        // wider than short edges between adjacent nodes — the line ends
+        // up reading as a fuzzy blob. Skip the glow when the edge is too
+        // short; the thicker stroke alone is enough.
+        const edgeLen = Math.hypot(x2 - x1, y2 - y1);
+        const useGlow = isOutgoingFromSelected && edgeLen > 40;
         return (
           <path
             key={i}
@@ -112,7 +118,7 @@ export function WorkflowGraph({
             fill="none"
             strokeDasharray={dash}
             opacity={target?.status === "skipped" ? 0.5 : 1}
-            filter={isOutgoingFromSelected ? "url(#edge-glow)" : undefined}
+            filter={useGlow ? "url(#edge-glow)" : undefined}
           />
         );
       })}
