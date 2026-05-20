@@ -993,14 +993,14 @@ function HtmlValue({
   const baseStyle = dark
     ? `body{background:#1a1a1e;color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:12px;}a{color:#93c5fd;}`
     : `body{background:#ffffff;color:#2d2a26;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:12px;}`;
-  const html = `<!doctype html><html><head><style>${baseStyle}</style></head><body>${inner}</body></html>`;
+  const html = `<!doctype html><html><head><base target="_blank"><style>${baseStyle}</style></head><body>${inner}</body></html>`;
   return (
     <div className="min-w-0">
       {mode === "rendered" ? (
         <iframe
           title="HTML preview"
           srcDoc={html}
-          sandbox=""
+          sandbox="allow-popups allow-popups-to-escape-sandbox"
           className="w-full h-[300px] border border-[var(--border)] rounded resize-y"
           style={{ background: dark ? "#1a1a1e" : "#ffffff" }}
         />
