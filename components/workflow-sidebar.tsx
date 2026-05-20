@@ -6,6 +6,10 @@ import { apiListWorkflows, readTestCounts } from "@/lib/client";
 const COLLAPSED_KEY = "n8n-ft.sidebar.collapsed";
 const ACTIVE_KEY = "n8n-ft.sidebar.activeOnly";
 const SORT_KEY = "n8n-ft.sidebar.sort";
+const WIDTH_KEY = "n8n-ft.sidebar.width";
+const MIN_WIDTH = 180;
+const MAX_WIDTH = 600;
+const DEFAULT_WIDTH = 260;
 
 type Sort = "usage" | "name" | "updated" | "created";
 const SORT_OPTIONS: Array<{ value: Sort; label: string }> = [
@@ -31,6 +35,8 @@ export function WorkflowSidebar({
   const [activeOnly, setActiveOnly] = useState(true);
   const [sort, setSort] = useState<Sort>("updated");
   const [filter, setFilter] = useState("");
+  const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
+  const [dragging, setDragging] = useState(false);
   const [workflows, setWorkflows] = useState<N8nWorkflowSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,8 +48,42 @@ export function WorkflowSidebar({
       setActiveOnly(localStorage.getItem(ACTIVE_KEY) !== "0");
       const s = localStorage.getItem(SORT_KEY) as Sort | null;
       if (s && SORT_OPTIONS.some((o) => o.value === s)) setSort(s);
+      const w = Number(localStorage.getItem(WIDTH_KEY));
+      if (Number.isFinite(w) && w >= MIN_WIDTH && w <= MAX_WIDTH) setWidth(w);
     } catch {}
   }, []);
+
+  // Drag-to-resize. Listeners live on window so the drag survives the
+  // cursor leaving the 4px-wide handle.
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: MouseEvent) => {
+      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, e.clientX));
+      setWidth(next);
+    };
+    const onUp = () => {
+      setDragging(false);
+      try {
+        // Read latest width via state setter callback to avoid stale closure.
+        setWidth((w) => {
+          try {
+            localStorage.setItem(WIDTH_KEY, String(w));
+          } catch {}
+          return w;
+        });
+      } catch {}
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [dragging]);
 
   useEffect(() => {
     setCounts(readTestCounts());
@@ -137,7 +177,10 @@ export function WorkflowSidebar({
   }
 
   return (
-    <aside className="flex-shrink-0 w-[260px] border-r border-[var(--border)] bg-[var(--panel-soft)] flex flex-col sticky top-0 self-start h-screen max-h-screen overflow-hidden">
+    <aside
+      className="flex-shrink-0 border-r border-[var(--border)] bg-[var(--panel-soft)] flex flex-col sticky top-0 self-start h-screen max-h-screen overflow-hidden relative"
+      style={{ width }}
+    >
       <div className="px-3 py-2 flex items-center gap-2 border-b border-[var(--border)]">
         <div className="text-[11px] font-semibold tracking-[1px] uppercase text-[var(--muted)] flex-1">
           Workflows
@@ -210,6 +253,28 @@ export function WorkflowSidebar({
           </div>
         )}
       </div>
+      {/* Resize handle: 4px-wide invisible strip on the right edge.
+          Click-and-drag adjusts sidebar width; the surrounding `aside`
+          uses `flex-shrink-0` so the main pane absorbs the change. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        title="Drag to resize"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDoubleClick={() => {
+          setWidth(DEFAULT_WIDTH);
+          try {
+            localStorage.setItem(WIDTH_KEY, String(DEFAULT_WIDTH));
+          } catch {}
+        }}
+        className={`absolute top-0 right-0 h-full w-[6px] -mr-[3px] cursor-col-resize z-10 ${
+          dragging ? "bg-[var(--n8n)]/40" : "hover:bg-[var(--n8n)]/30"
+        }`}
+      />
     </aside>
   );
 }
