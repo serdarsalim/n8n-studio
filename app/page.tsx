@@ -65,7 +65,7 @@ export default function Page() {
 
   // Drag-resizable width of the WorkflowGraph pane. Persisted in
   // localStorage; default is a comfortable starting size.
-  const [graphPaneWidth, setGraphPaneWidth] = useState<number>(360);
+  const [graphPaneWidth, setGraphPaneWidth] = useState<number>(560);
   const [graphDragging, setGraphDragging] = useState(false);
 
   // Hydrate persisted state.
@@ -508,9 +508,9 @@ export default function Page() {
                   setGraphDragging(true);
                 }}
                 onDoubleClick={() => {
-                  setGraphPaneWidth(360);
+                  setGraphPaneWidth(560);
                   try {
-                    localStorage.setItem("n8n-ft.graphPane.width", "360");
+                    localStorage.setItem("n8n-ft.graphPane.width", "560");
                   } catch {}
                 }}
                 className={`flex-shrink-0 sticky top-4 self-stretch w-[6px] -mx-[3px] cursor-col-resize rounded-full z-10 ${
