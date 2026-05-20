@@ -895,8 +895,12 @@ function ParamTree({
   const entries: Array<[string, unknown]> = Array.isArray(value)
     ? (value as unknown[]).map((v, i) => [String(i), v])
     : Object.entries(value as Record<string, unknown>);
+  // Single grid wraps all sibling rows so the value column aligns across
+  // them (widest key sets the column width). Each row emits its cells
+  // directly into this grid via React fragments; nested expansions span
+  // both columns and host their own ParamTree grid inside.
   return (
-    <div className="font-mono text-[12px] divide-y divide-[var(--border)]">
+    <div className="grid grid-cols-[max-content_1fr] gap-x-3 font-mono text-[12px]">
       {entries.map(([k, v]) => (
         <ParamTreeRow key={k} k={k} v={v} resolve={resolve} showRaw={showRaw} depth={depth} />
       ))}
@@ -927,7 +931,7 @@ function ParamTreeRow({
     // isn't squeezed into a narrow value column at deep indent levels.
     if (typeof v === "string" && !showRaw && hasAnyHtml(v)) {
       return (
-        <div className="px-2 py-[6px] min-w-0">
+        <div className="col-span-2 px-2 py-[6px] min-w-0 border-b border-[var(--border)] last:border-b-0">
           <div className="text-[var(--muted)] break-words mb-1" style={{ paddingLeft: indent }}>
             {k}
           </div>
@@ -938,21 +942,21 @@ function ParamTreeRow({
       );
     }
     return (
-      <div className="grid grid-cols-[minmax(80px,max-content)_1fr] gap-3 px-2 py-[6px] min-w-0">
+      <>
         <div
-          className="text-[var(--muted)] whitespace-nowrap"
-          style={{ paddingLeft: indent }}
+          className="text-[var(--muted)] whitespace-nowrap py-[6px] pl-2 border-b border-[var(--border)] last:border-b-0"
+          style={{ paddingLeft: indent + 8 }}
         >
           {k}
         </div>
-        <div className="min-w-0 break-words text-right">
+        <div className="min-w-0 break-words py-[6px] pr-2 border-b border-[var(--border)] last:border-b-0">
           {typeof v === "string" ? (
             <ParamValue value={v} resolve={resolve} showRaw={showRaw} />
           ) : (
             <Cell value={v} />
           )}
         </div>
-      </div>
+      </>
     );
   }
   return (
@@ -967,10 +971,10 @@ function ParamTreeRow({
             setOpen((o) => !o);
           }
         }}
-        className="grid grid-cols-[180px_1fr] gap-3 px-2 py-[6px] min-w-0 cursor-pointer hover:bg-[var(--panel-soft-2)]"
+        className="col-span-2 grid grid-cols-subgrid gap-x-3 px-2 py-[6px] min-w-0 cursor-pointer hover:bg-[var(--panel-soft-2)] border-b border-[var(--border)] last:border-b-0"
       >
         <div
-          className="text-[var(--muted)] break-words flex items-center gap-1"
+          className="text-[var(--muted)] whitespace-nowrap flex items-center gap-1"
           style={{ paddingLeft: indent }}
         >
           <span className="text-[var(--muted-2)] inline-block w-[10px]">{open ? "▾" : "▸"}</span>
@@ -979,7 +983,7 @@ function ParamTreeRow({
         <div className="min-w-0 break-words text-[var(--muted)] italic">{summary(v)}</div>
       </div>
       {open && (
-        <div>
+        <div className="col-span-2">
           <ParamTree value={v} resolve={resolve} showRaw={showRaw} depth={depth + 1} />
         </div>
       )}
