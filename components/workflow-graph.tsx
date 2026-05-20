@@ -268,11 +268,20 @@ function buildLayout(workflow: N8nWorkflow, fitHeight: number): Layout | null {
   // getting squished to fit viewport height.
   const flowScale = FLOW_SCALE;
 
-  // Detect screen-position collisions (same column AND nearly same row);
-  // nudge collisions down so they're at least distinguishable. Iterate in
-  // topological order so earlier-in-the-DAG nodes claim their slots first.
+  // Detect screen-position collisions using the full bounding box
+  // (icon + label) so a column-0 node's label can't sit at the same
+  // row as a column-1 node's icon. Iterate in topological order so
+  // earlier-in-the-DAG nodes claim their slots first.
   const positions = new Map<string, { x: number; y: number }>();
-  const occupied: Array<{ x: number; y: number }> = [];
+  const occupied: Array<{ l: number; t: number; r: number; b: number }> = [];
+  const boxW = NODE_W + 6 + LABEL_W; // icon + gutter + label
+  const boxH = Math.max(NODE_H, LABEL_H);
+  const overlaps = (a: { l: number; t: number; r: number; b: number }, l: number, t: number) => {
+    const r = l + boxW;
+    const b = t + boxH;
+    // 4px slack so micro-overlaps don't snowball into giant nudges.
+    return !(a.r <= l + 4 || a.l >= r - 4 || a.b <= t + 4 || a.t >= b - 4);
+  };
   const orderedNodes = topoOrder(nodes, workflow);
   for (const n of orderedNodes) {
     let sx: number;
@@ -283,12 +292,10 @@ function buildLayout(workflow: N8nWorkflow, fitHeight: number): Layout | null {
       sx = (n.position![1] - minY) * branchScale + PAD;
     }
     let sy = (n.position![0] - minX) * flowScale + PAD;
-    while (
-      occupied.some((p) => Math.abs(p.x - sx) < 4 && Math.abs(p.y - sy) < NODE_H + 8)
-    ) {
+    while (occupied.some((p) => overlaps(p, sx, sy))) {
       sy += NODE_H + 12;
     }
-    occupied.push({ x: sx, y: sy });
+    occupied.push({ l: sx, t: sy, r: sx + boxW, b: sy + boxH });
     positions.set(n.name, { x: sx, y: sy });
   }
 
