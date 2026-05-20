@@ -17,7 +17,7 @@ const FLOW_SCALE = 0.2;
 // Below this viewport height we start scaling the flow gaps down so the
 // graph stays compact on smaller desktop screens. Above it the base
 // FLOW_SCALE is used unchanged.
-const FLOW_VIEWPORT_REF = 1000;
+const FLOW_VIEWPORT_REF = 1500;
 const BRANCH_SCALE = 0.42;
 // Max parallel branches shown side-by-side. Wider workflows snap into
 // these lanes, losing some n8n y-precision but staying readable.
