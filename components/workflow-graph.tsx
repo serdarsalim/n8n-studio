@@ -315,7 +315,13 @@ function buildLayout(workflow: N8nWorkflow, fitHeight: number): Layout | null {
     if (p.x > maxSX) maxSX = p.x;
     if (p.y > maxSY) maxSY = p.y;
   }
-  const width = maxSX + NODE_W + LABEL_W + 6 + PAD;
+  // Pad viewBox width to a minimum equivalent to MAX_COLS columns so
+  // single-column workflows don't get inflated by preserveAspectRatio
+  // when the SVG is rendered at width=100% in a wider pane. The icons
+  // and labels stay consistent across workflows of different widths.
+  const minViewBoxWidth = PAD + MAX_COLS * COL_WIDTH + PAD;
+  const naturalWidth = maxSX + NODE_W + LABEL_W + 6 + PAD;
+  const width = Math.max(minViewBoxWidth, naturalWidth);
   const height = maxSY + NODE_H + PAD;
   return { positions, edges, width, height };
 }
