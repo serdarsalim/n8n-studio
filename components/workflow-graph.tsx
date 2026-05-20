@@ -85,12 +85,13 @@ export function WorkflowGraph({
               ? "var(--red)"
               : "var(--muted-2)";
         const dash = target && target.status !== "fired" ? "4 4" : undefined;
+        const isOutgoingFromSelected = selectedName != null && e.fromName === selectedName;
         return (
           <path
             key={i}
             d={d}
             stroke={stroke}
-            strokeWidth={1.6}
+            strokeWidth={isOutgoingFromSelected ? 3 : 1.6}
             fill="none"
             strokeDasharray={dash}
             opacity={target?.status === "skipped" ? 0.5 : 1}
