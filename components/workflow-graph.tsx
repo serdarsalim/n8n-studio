@@ -275,14 +275,13 @@ function buildLayout(workflow: N8nWorkflow, fitHeight: number): Layout | null {
   const positions = new Map<string, { x: number; y: number }>();
   const occupied: Array<{ l: number; t: number; r: number; b: number }> = [];
   const boxW = NODE_W + 6 + LABEL_W; // icon + gutter + label
-  // Vertical "exclusion zone" around each node: NODE_H plus enough
-  // breathing room that the visual gap between any two nodes feels
-  // like the loose FLOW_SCALE-driven spacing rather than crammed.
-  const boxH = NODE_H + 40;
+  // Vertical exclusion = icon height plus a few px slack. Keeping this
+  // tight preserves the natural FLOW_SCALE-driven gaps; only true
+  // overlaps trigger a nudge.
+  const boxH = NODE_H + 8;
   const overlaps = (a: { l: number; t: number; r: number; b: number }, l: number, t: number) => {
     const r = l + boxW;
     const b = t + boxH;
-    // 4px slack so micro-overlaps don't snowball into giant nudges.
     return !(a.r <= l + 4 || a.l >= r - 4 || a.b <= t + 4 || a.t >= b - 4);
   };
   const orderedNodes = topoOrder(nodes, workflow);
@@ -296,7 +295,7 @@ function buildLayout(workflow: N8nWorkflow, fitHeight: number): Layout | null {
     }
     let sy = (n.position![0] - minX) * flowScale + PAD;
     while (occupied.some((p) => overlaps(p, sx, sy))) {
-      sy += boxH;
+      sy += NODE_H + 12;
     }
     occupied.push({ l: sx, t: sy, r: sx + boxW, b: sy + boxH });
     positions.set(n.name, { x: sx, y: sy });
