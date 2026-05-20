@@ -13,11 +13,7 @@ const PAD = 14;
 // Workflow x is the flow direction (left→right in n8n editor). We rotate
 // 90° clockwise so x→screen.y (flow goes top-to-bottom). Tight vertical
 // spacing since this is a navigation aid, not a duplicate canvas.
-const FLOW_SCALE = 0.2;
-// Below this viewport height we start scaling the flow gaps down so the
-// graph stays compact on smaller desktop screens. Above it the base
-// FLOW_SCALE is used unchanged.
-const FLOW_VIEWPORT_REF = 1500;
+const FLOW_SCALE = 0.14;
 const BRANCH_SCALE = 0.42;
 // Max parallel branches shown side-by-side. Wider workflows snap into
 // these lanes, losing some n8n y-precision but staying readable.
@@ -252,19 +248,13 @@ function buildLayout(workflow: N8nWorkflow, fitHeight: number): Layout | null {
     yToCol.set(y, col);
   });
 
-  // Two compression sources:
-  //   1. Viewport-aware base: on shorter desktop screens we scale the
-  //      base flow gap down proportionally so the graph feels tight
-  //      without affecting big monitors.
-  //   2. Hard-fit fallback: if even the viewport-scaled gap overflows
-  //      the visible height, compress further to fit.
-  const viewportScale = Math.min(1, fitHeight / FLOW_VIEWPORT_REF);
-  const baseFlowScale = FLOW_SCALE * viewportScale;
-  const naturalFlow = (maxX - minX) * baseFlowScale + NODE_H + PAD * 2;
+  // Use the same tight FLOW_SCALE on every desktop size. Hard-fit
+  // fallback still kicks in if the graph would overflow the viewport.
+  const naturalFlow = (maxX - minX) * FLOW_SCALE + NODE_H + PAD * 2;
   const flowScale =
     naturalFlow > fitHeight && maxX > minX
       ? Math.max(0.08, (fitHeight - NODE_H - PAD * 2) / (maxX - minX))
-      : baseFlowScale;
+      : FLOW_SCALE;
 
   // Detect screen-position collisions (same column AND nearly same row);
   // nudge collisions down so they're at least distinguishable. Iterate in
