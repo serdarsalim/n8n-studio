@@ -944,7 +944,7 @@ function ParamTreeRow({
     return (
       <>
         <div
-          className="text-[var(--muted)] whitespace-nowrap py-[6px] pl-2 border-b border-[var(--border)] last:border-b-0"
+          className="text-[var(--muted)] whitespace-nowrap py-[6px] pl-2 border-b border-[var(--border)] [&:nth-last-child(2)]:border-b-0"
           style={{ paddingLeft: indent + 8 }}
         >
           {k}
