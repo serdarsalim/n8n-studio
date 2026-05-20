@@ -275,7 +275,10 @@ function buildLayout(workflow: N8nWorkflow, fitHeight: number): Layout | null {
   const positions = new Map<string, { x: number; y: number }>();
   const occupied: Array<{ l: number; t: number; r: number; b: number }> = [];
   const boxW = NODE_W + 6 + LABEL_W; // icon + gutter + label
-  const boxH = Math.max(NODE_H, LABEL_H);
+  // Vertical "exclusion zone" around each node: NODE_H plus enough
+  // breathing room that the visual gap between any two nodes feels
+  // like the loose FLOW_SCALE-driven spacing rather than crammed.
+  const boxH = NODE_H + 40;
   const overlaps = (a: { l: number; t: number; r: number; b: number }, l: number, t: number) => {
     const r = l + boxW;
     const b = t + boxH;
@@ -293,7 +296,7 @@ function buildLayout(workflow: N8nWorkflow, fitHeight: number): Layout | null {
     }
     let sy = (n.position![0] - minX) * flowScale + PAD;
     while (occupied.some((p) => overlaps(p, sx, sy))) {
-      sy += NODE_H + 12;
+      sy += boxH;
     }
     occupied.push({ l: sx, t: sy, r: sx + boxW, b: sy + boxH });
     positions.set(n.name, { x: sx, y: sy });
