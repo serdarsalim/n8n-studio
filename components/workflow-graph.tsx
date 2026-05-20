@@ -64,6 +64,19 @@ export function WorkflowGraph({
       preserveAspectRatio="xMidYMin meet"
       className="block select-none w-full h-auto"
     >
+      <defs>
+        {/* Soft static glow applied to outgoing edges of the selected
+            node. Blurs the line and merges the result back over the
+            sharp stroke so we get a halo without losing definition. */}
+        <filter id="edge-glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
       {/* Edges first so they sit under nodes */}
       {edges.map((e, i) => {
         const from = positions.get(e.fromName);
@@ -95,6 +108,7 @@ export function WorkflowGraph({
             fill="none"
             strokeDasharray={dash}
             opacity={target?.status === "skipped" ? 0.5 : 1}
+            filter={isOutgoingFromSelected ? "url(#edge-glow)" : undefined}
           />
         );
       })}
