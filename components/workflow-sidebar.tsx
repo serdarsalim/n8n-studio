@@ -219,7 +219,7 @@ export function WorkflowSidebar({
         <SortMenu value={sort} onChange={changeSort} />
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-2 pt-2 pb-[50vh]">
+      <div className="flex-1 min-h-0 overflow-y-auto px-2 pt-2 pb-[50vh] [scrollbar-width:thin] [scrollbar-color:var(--border-strong)_transparent] [&::-webkit-scrollbar]:w-[5px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[var(--border-strong)] [&::-webkit-scrollbar-thumb]:rounded-full">
         {error && (
           <div className="text-[11px] text-[var(--red-text)] bg-[var(--red-bg)] px-2 py-1.5 rounded">
             {error}
