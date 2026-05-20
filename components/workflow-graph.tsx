@@ -87,8 +87,12 @@ export function WorkflowGraph({
         const x2 = to.x + NODE_W / 2;
         const y2 = to.y;
         // Cubic bezier with vertical control offsets — smooth S-curve when
-        // source and target are horizontally offset.
-        const cpdy = Math.max(20, (y2 - y1) / 2);
+        // source and target are horizontally offset. Cap cpdy at half the
+        // Y delta so short edges between adjacent nodes don't get control
+        // points that cross each other (the curve bunches at midpoint
+        // and the line becomes a tiny dot instead of a visible link).
+        const dy = Math.abs(y2 - y1);
+        const cpdy = Math.min(20, dy / 2);
         const d = `M ${x1} ${y1} C ${x1} ${y1 + cpdy}, ${x2} ${y2 - cpdy}, ${x2} ${y2}`;
         const target = checksByName.get(e.toName);
         const stroke =
