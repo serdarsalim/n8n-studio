@@ -826,10 +826,24 @@ function ParamTreeRow({
 }) {
   const nestable = v !== null && typeof v === "object";
   const [open, setOpen] = useState(depth < 1);
-  const indent = depth * 14;
+  const indent = depth * 8;
   if (!nestable) {
+    // HTML iframe leaves get a stacked, full-width layout so the preview
+    // isn't squeezed into a narrow value column at deep indent levels.
+    if (typeof v === "string" && !showRaw && hasAnyHtml(v)) {
+      return (
+        <div className="px-2 py-[6px] min-w-0">
+          <div className="text-[var(--muted)] break-words mb-1" style={{ paddingLeft: indent }}>
+            {k}
+          </div>
+          <div className="min-w-0">
+            <ParamValue value={v} resolve={resolve} showRaw={showRaw} />
+          </div>
+        </div>
+      );
+    }
     return (
-      <div className="grid grid-cols-[180px_1fr] gap-3 px-2 py-[6px] min-w-0">
+      <div className="grid grid-cols-[120px_1fr] gap-3 px-2 py-[6px] min-w-0">
         <div className="text-[var(--muted)] break-words" style={{ paddingLeft: indent }}>
           {k}
         </div>
