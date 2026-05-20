@@ -106,6 +106,22 @@ export function SettingsModal({
           placeholder="n8n_api_…"
         />
       </Field>
+      <div className="mb-[14px] -mt-[6px]">
+        <button
+          type="button"
+          onClick={() => {
+            setUrl("");
+            setKey("");
+          }}
+          disabled={!url && !key}
+          className="text-[11px] text-[var(--muted)] hover:text-[var(--red)] disabled:text-[var(--muted-2)] disabled:cursor-not-allowed cursor-pointer bg-transparent border-0 p-0 underline underline-offset-2"
+        >
+          Clear connection
+        </button>
+        <span className="text-[11px] text-[var(--muted-2)] ml-2">
+          Wipes the URL and key from this browser. Save to confirm.
+        </span>
+      </div>
 
       <SectionLabel className="mt-6">Display preferences</SectionLabel>
       <Toggle
