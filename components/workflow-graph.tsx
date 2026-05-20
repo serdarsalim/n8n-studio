@@ -54,12 +54,6 @@ export function WorkflowGraph({
   if (!layout) return null;
   const { positions, edges, width, height } = layout;
 
-  // Spread the endpoint X across the node width so multiple edges that
-  // leave (or arrive at) the same node don't collapse onto one line.
-  // For each source node we slot its outgoing edges evenly across the
-  // node bottom; same on the target node's top for incoming edges.
-  const edgePortSlots = computeEdgePortSlots(edges);
-
   return (
     <svg
       // Render at intrinsic aspect ratio but let the container drive the
@@ -70,18 +64,14 @@ export function WorkflowGraph({
       preserveAspectRatio="xMidYMin meet"
       className="block select-none w-full h-auto"
     >
-      {/* Edges first so they sit under nodes. Endpoints are spread across
-          the source/target node widths so multiple edges fanning out from
-          (or into) the same node don't overlap into a single thick line. */}
+      {/* Edges first so they sit under nodes */}
       {edges.map((e, i) => {
         const from = positions.get(e.fromName);
         const to = positions.get(e.toName);
         if (!from || !to) return null;
-        const srcSlot = edgePortSlots.source.get(`${e.fromName}#${i}`) ?? 0.5;
-        const dstSlot = edgePortSlots.target.get(`${e.toName}#${i}`) ?? 0.5;
-        const x1 = from.x + NODE_W * srcSlot;
+        const x1 = from.x + NODE_W / 2;
         const y1 = from.y + NODE_H;
-        const x2 = to.x + NODE_W * dstSlot;
+        const x2 = to.x + NODE_W / 2;
         const y2 = to.y;
         // Cubic bezier with vertical control offsets — smooth S-curve when
         // source and target are horizontally offset.
@@ -313,42 +303,4 @@ function buildLayout(workflow: N8nWorkflow, fitHeight: number): Layout | null {
   const width = maxSX + NODE_W + LABEL_W + 6 + PAD;
   const height = maxSY + NODE_H + PAD;
   return { positions, edges, width, height };
-}
-
-// For each node, slot its outgoing edges along the bottom edge (and
-// incoming edges along the top edge) so parallel lines don't overlap.
-// Returns fractional positions in [0, 1] keyed by `${nodeName}#${edgeIndex}`.
-function computeEdgePortSlots(
-  edges: Array<{ fromName: string; toName: string; outputIndex: number }>,
-): { source: Map<string, number>; target: Map<string, number> } {
-  const source = new Map<string, number>();
-  const target = new Map<string, number>();
-  // Group by source: preserve original edge order to keep colors stable.
-  const outByNode = new Map<string, number[]>();
-  const inByNode = new Map<string, number[]>();
-  edges.forEach((e, idx) => {
-    const o = outByNode.get(e.fromName) ?? [];
-    o.push(idx);
-    outByNode.set(e.fromName, o);
-    const i = inByNode.get(e.toName) ?? [];
-    i.push(idx);
-    inByNode.set(e.toName, i);
-  });
-  for (const [, idxs] of outByNode) {
-    // Spread across the middle 70% of the node width so endpoints stay
-    // visually inside the icon.
-    const n = idxs.length;
-    idxs.forEach((idx, i) => {
-      const slot = n === 1 ? 0.5 : 0.15 + (0.7 * i) / (n - 1);
-      source.set(`${edges[idx].fromName}#${idx}`, slot);
-    });
-  }
-  for (const [, idxs] of inByNode) {
-    const n = idxs.length;
-    idxs.forEach((idx, i) => {
-      const slot = n === 1 ? 0.5 : 0.15 + (0.7 * i) / (n - 1);
-      target.set(`${edges[idx].toName}#${idx}`, slot);
-    });
-  }
-  return { source, target };
 }
