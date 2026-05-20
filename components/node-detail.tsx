@@ -740,18 +740,14 @@ function ParamValue({
   showRaw: boolean;
 }) {
   if (typeof value === "string") {
-    if (looksLikeHtml(value)) {
-      return <HtmlValue value={value} resolve={resolve} showRaw={showRaw} />;
-    }
     // Plain strings AND expression strings render as plain text (no JSON
     // quotes). Expression strings resolve when !showRaw.
     const isExpr = !!resolve && hasExpression(value);
     const display = isExpr && !showRaw ? resolve!(value) : value;
-    // If the (possibly resolved) value is a JSON string, render it as a
-    // structured key/value list with nested-table support for arrays of
-    // objects. Skipped when showRaw is on — the raw expression is what
-    // the user wants verbatim. Arrays-of-objects use the top-level
-    // ItemsTable; scalars/arrays-of-scalars fall back to JsonTree.
+    // Try JSON-string parsing BEFORE the HTML check. JSON-encoded HTML
+    // (e.g. HubSpot bodyParameters value with `\"` escapes) must be
+    // unwrapped first — otherwise we render the raw JSON text inside the
+    // iframe and `\"` survives into href attributes.
     if (!showRaw) {
       const parsed = tryParseJson(display);
       if (parsed !== UNPARSEABLE) {
@@ -762,11 +758,17 @@ function ParamValue({
         ) {
           return <ItemsTable items={parsed as Array<Record<string, unknown>>} />;
         }
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          return <SingleItemList item={parsed as Record<string, unknown>} />;
+        if (parsed && typeof parsed === "object") {
+          // Recurse via ParamTree so any nested HTML string leaves get
+          // rendered through ParamValue (iframe preview), not as plain
+          // green text via SingleItemList/Cell.
+          return <ParamTree value={parsed} resolve={resolve} showRaw={showRaw} depth={0} />;
         }
         return <JsonTree value={parsed} />;
       }
+    }
+    if (looksLikeHtml(display)) {
+      return <HtmlValue value={display} resolve={undefined} showRaw={showRaw} />;
     }
     return (
       <div className="font-mono text-[12px] break-words text-[var(--text)]">{display}</div>
