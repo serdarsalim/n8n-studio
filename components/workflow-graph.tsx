@@ -18,7 +18,7 @@ const BRANCH_SCALE = 0.42;
 // Max parallel branches shown side-by-side. Wider workflows snap into
 // these lanes, losing some n8n y-precision but staying readable.
 const MAX_COLS = 3;
-const COL_WIDTH = NODE_W + LABEL_W + 12;
+const COL_WIDTH = NODE_W + LABEL_W + 4;
 
 export function WorkflowGraph({
   workflow,
