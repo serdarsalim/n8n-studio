@@ -381,7 +381,7 @@ export default function Page() {
       />
       <div className="flex-1 min-w-0 flex flex-col bg-[var(--panel)]">
       <header
-        className={`px-4 py-2 bg-[var(--panel)] border-b border-[var(--border)] flex items-center gap-4 ${
+        className={`px-4 py-2 bg-[var(--panel)] border-b border-[var(--border)] flex items-center gap-4 sticky top-0 z-20 ${
           testMode ? "ring-2 ring-inset ring-[var(--n8n)]/60" : ""
         }`}
       >
@@ -488,7 +488,7 @@ export default function Page() {
             <>
               <aside
                 id="graph-pane"
-                className="flex-shrink-0 sticky top-4 self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2"
+                className="flex-shrink-0 sticky top-[60px] self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2"
                 style={{ width: graphPaneWidth }}
               >
                 <WorkflowGraph
@@ -513,7 +513,7 @@ export default function Page() {
                     localStorage.setItem("n8n-ft.graphPane.width", "560");
                   } catch {}
                 }}
-                className={`flex-shrink-0 sticky top-4 self-stretch w-[6px] -mx-[3px] cursor-col-resize rounded-full z-10 ${
+                className={`flex-shrink-0 sticky top-[60px] self-stretch w-[6px] -mx-[3px] cursor-col-resize rounded-full z-10 ${
                   graphDragging ? "bg-[var(--n8n)]/40" : "hover:bg-[var(--n8n)]/30"
                 }`}
                 style={{ minHeight: "calc(100vh - 6rem)" }}
