@@ -1,4 +1,4 @@
-# n8n-workflow-manager
+# n8n-studio
 
 A free, open-source workflow inspector and tester for [n8n](https://n8n.io). Load a workflow, give it an input, hit run — and read the result in a humanely friendly view that n8n itself doesn't provide.
 

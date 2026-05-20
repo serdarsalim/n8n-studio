@@ -386,7 +386,7 @@ export default function Page() {
         }`}
       >
         <div className="flex items-center gap-2 flex-shrink-0">
-          <h1 className="m-0 text-[13px] font-semibold whitespace-nowrap">n8n-flow-tester</h1>
+          <h1 className="m-0 text-[13px] font-semibold whitespace-nowrap">n8n-studio</h1>
           {testMode && (
             <span className="text-[9px] font-semibold tracking-[1px] uppercase px-1.5 py-[1px] rounded bg-[var(--n8n)] text-white">
               Test
