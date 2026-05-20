@@ -9,9 +9,11 @@ import { InputModal } from "@/components/modals/input-modal";
 import { Btn } from "@/components/modals/modal";
 import { SettingsModal } from "@/components/modals/settings-modal";
 import { WorkflowModal } from "@/components/modals/workflow-modal";
+import { WorkflowSidebar } from "@/components/workflow-sidebar";
 import {
   apiGetExecution,
   apiGetWorkflow,
+  apiListExecutions,
   apiResolveTestMirror,
   apiRun,
   apiTestRun,
@@ -61,6 +63,11 @@ export default function Page() {
   // Used to point the Executions modal at test runs instead of prod runs.
   const [testMirrorId, setTestMirrorId] = useState<string | null>(null);
 
+  // Drag-resizable width of the WorkflowGraph pane. Persisted in
+  // localStorage; default is a comfortable starting size.
+  const [graphPaneWidth, setGraphPaneWidth] = useState<number>(360);
+  const [graphDragging, setGraphDragging] = useState(false);
+
   // Hydrate persisted state.
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
@@ -73,8 +80,47 @@ export default function Page() {
     setInputJson(session.inputJson);
     setSelectedFixtureId(session.selectedFixtureId);
     setTestModeState(readPrefs().testMode);
+    try {
+      const w = Number(localStorage.getItem("n8n-ft.graphPane.width"));
+      if (Number.isFinite(w) && w >= 120 && w <= 900) setGraphPaneWidth(w);
+    } catch {}
     setHydrated(true);
   }, []);
+
+  // Drag-to-resize the workflow graph pane. Listeners on window so the
+  // gesture survives the cursor leaving the 6px handle.
+  useEffect(() => {
+    if (!graphDragging) return;
+    const onMove = (e: MouseEvent) => {
+      // x measured from the graph aside's left edge; the aside sits
+      // to the right of the sidebar + section padding. Use the aside's
+      // bounding rect for accurate offset.
+      const aside = document.getElementById("graph-pane");
+      if (!aside) return;
+      const rect = aside.getBoundingClientRect();
+      const next = Math.min(900, Math.max(120, e.clientX - rect.left));
+      setGraphPaneWidth(next);
+    };
+    const onUp = () => {
+      setGraphDragging(false);
+      setGraphPaneWidth((w) => {
+        try {
+          localStorage.setItem("n8n-ft.graphPane.width", String(w));
+        } catch {}
+        return w;
+      });
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [graphDragging]);
 
   const setTestMode = (next: boolean) => {
     setTestModeState(next);
@@ -285,6 +331,34 @@ export default function Page() {
         setSelectedFixtureId(null);
         setSelectedNodeName(null);
         bumpTestCount(wf.id);
+
+        // Auto-load the latest execution so the user lands on a populated
+        // view, not an empty "Awaiting run." Best-effort: if it fails or
+        // there are no executions, leave the view empty and stay silent —
+        // the user can still load one manually from the executions modal.
+        try {
+          const list = await apiListExecutions(settings, wf.id, 1);
+          const latestId = list[0]?.id;
+          if (!latestId) return;
+          const exec = await apiGetExecution(settings, latestId);
+          setExecution(exec);
+          const extracted = extractTriggerInput(wf, exec);
+          if (extracted) {
+            setInputText(extracted.text);
+            setInputJson(extracted.json);
+            const fixture = upsertFixtureFromExecution(
+              wf.id,
+              exec.id,
+              `#${exec.id}`,
+              extracted.text,
+              extracted.json,
+            );
+            setSelectedFixtureId(fixture.id);
+          }
+          bumpExecAccess(wf.id, latestId);
+        } catch {
+          // Silent — picking the workflow still succeeded.
+        }
       } catch (e) {
         setRunError(`Could not load workflow ${name}: ${(e as Error).message}`);
       }
@@ -299,10 +373,78 @@ export default function Page() {
   };
 
   return (
-    <main>
-      <header className="px-6 py-3 bg-[var(--panel)] border-b border-[var(--border)] flex items-center justify-between gap-3">
-        <h1 className="m-0 text-[15px] font-semibold">n8n-flow-tester</h1>
-        <div className="flex items-center gap-2">
+    <main className="flex items-stretch min-h-screen">
+      <WorkflowSidebar
+        settings={settings}
+        currentId={workflow?.id ?? null}
+        onPick={onPickWorkflow}
+      />
+      <div className="flex-1 min-w-0 flex flex-col bg-[var(--panel)]">
+      <header
+        className={`px-4 py-2 bg-[var(--panel)] border-b border-[var(--border)] flex items-center gap-4 ${
+          testMode ? "ring-2 ring-inset ring-[var(--n8n)]/60" : ""
+        }`}
+      >
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <h1 className="m-0 text-[13px] font-semibold whitespace-nowrap">n8n-flow-tester</h1>
+          {testMode && (
+            <span className="text-[9px] font-semibold tracking-[1px] uppercase px-1.5 py-[1px] rounded bg-[var(--n8n)] text-white">
+              Test
+            </span>
+          )}
+        </div>
+
+        <div className="flex-1 flex items-center justify-center gap-1 min-w-0">
+          <CompactNode
+            color="blue"
+            icon={<Image src="/json-icon.png" alt="json" width={20} height={20} className="invert brightness-200" />}
+            label={
+              inputText
+                ? execution?.startedAt
+                  ? `Execution · ${fmtExecStarted(execution.startedAt)}`
+                  : "Custom JSON input"
+                : "No input loaded"
+            }
+            onClick={() => setModal("input")}
+          />
+          <CompactArrow />
+          <CompactNode
+            color="white"
+            icon={<Image src="/n8n-icon.webp" alt="n8n" width={24} height={24} className="object-contain" />}
+            label={workflow?.name ?? "No workflow loaded"}
+            onClick={() => setModal("workflow")}
+            glowN8n
+          />
+          <CompactArrow />
+          <CompactNode
+            color={
+              verdict
+                ? verdict.ok === true
+                  ? "green"
+                  : verdict.ok === false
+                    ? "red"
+                    : "muted"
+                : "muted"
+            }
+            icon={
+              verdict ? (
+                verdict.ok === true ? (
+                  <CheckSvg small />
+                ) : verdict.ok === false ? (
+                  <XSvg small />
+                ) : (
+                  <DotSvg small />
+                )
+              ) : (
+                <DotSvg small />
+              )
+            }
+            label={verdict?.label ?? "Awaiting run"}
+            onClick={() => workflow && setModal("executions")}
+          />
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
           <TestModeToggle on={testMode} onChange={setTestMode} />
           {(() => {
             const disabled = !workflow || !inputText || running;
@@ -329,69 +471,8 @@ export default function Page() {
         </div>
       </header>
 
-      <div
-        className={`canvas-bg px-8 pt-6 pb-6 flex items-center justify-center border-b border-[var(--border)] relative ${
-          testMode ? "ring-2 ring-inset ring-[var(--n8n)]/60" : ""
-        }`}
-      >
-        {testMode && (
-          <div className="absolute top-2 left-4 text-[10px] font-semibold tracking-[1px] uppercase px-2 py-[2px] rounded bg-[var(--n8n)] text-white">
-            Test mode
-          </div>
-        )}
-        <NodeBlock
-          color="blue"
-          icon={<Image src="/json-icon.png" alt="json" width={37} height={37} className="invert brightness-200" />}
-          label={
-            inputText
-              ? execution?.startedAt
-                ? `Execution · ${fmtExecStarted(execution.startedAt)}`
-                : "Custom JSON input"
-              : "No input loaded"
-          }
-          onClick={() => setModal("input")}
-          glow
-        />
-        <Wire />
-        <NodeBlock
-          color="white"
-          icon={<Image src="/n8n-icon.webp" alt="n8n" width={45} height={45} className="object-contain" />}
-          label={workflow?.name ?? "No workflow loaded"}
-          onClick={() => setModal("workflow")}
-          glowN8n
-        />
-        <Wire />
-        <NodeBlock
-          color={
-            verdict
-              ? verdict.ok === true
-                ? "green"
-                : verdict.ok === false
-                  ? "red"
-                  : "muted"
-              : "muted"
-          }
-          icon={
-            verdict ? (
-              verdict.ok === true ? (
-                <CheckSvg />
-              ) : verdict.ok === false ? (
-                <XSvg />
-              ) : (
-                <DotSvg />
-              )
-            ) : (
-              <DotSvg />
-            )
-          }
-          label={verdict?.label ?? "Awaiting run"}
-          onClick={() => workflow && setModal("executions")}
-          glow={!!verdict && verdict.ok !== null}
-        />
-      </div>
 
-
-      <section className="px-6 py-5 bg-[var(--panel)] min-h-[60vh]">
+      <section className="px-6 py-5 bg-[var(--panel)] flex-1">
         {runError && (
           <div className="mb-4 text-[13px] text-[var(--red-text)] bg-[var(--red-bg)] px-3 py-2 rounded">
             {runError}
@@ -402,18 +483,42 @@ export default function Page() {
             Test run · {testRunNote}
           </div>
         )}
-        <div className="flex gap-6 items-start">
+        <div className="flex gap-3 items-start">
           {workflow && checks.length > 0 && (
-            <aside
-              className="flex-shrink-0 sticky top-4 self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2"
-            >
-              <WorkflowGraph
-                workflow={workflow}
-                checks={checks}
-                selectedName={selectedNodeName}
-                onSelect={setSelectedNodeName}
+            <>
+              <aside
+                id="graph-pane"
+                className="flex-shrink-0 sticky top-4 self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2 overflow-auto relative"
+                style={{ width: graphPaneWidth, maxHeight: "calc(100vh - 6rem)" }}
+              >
+                <WorkflowGraph
+                  workflow={workflow}
+                  checks={checks}
+                  selectedName={selectedNodeName}
+                  onSelect={setSelectedNodeName}
+                />
+              </aside>
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize workflow graph"
+                title="Drag to resize · double-click to reset"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setGraphDragging(true);
+                }}
+                onDoubleClick={() => {
+                  setGraphPaneWidth(360);
+                  try {
+                    localStorage.setItem("n8n-ft.graphPane.width", "360");
+                  } catch {}
+                }}
+                className={`flex-shrink-0 sticky top-4 self-stretch w-[6px] -mx-[3px] cursor-col-resize rounded-full z-10 ${
+                  graphDragging ? "bg-[var(--n8n)]/40" : "hover:bg-[var(--n8n)]/30"
+                }`}
+                style={{ minHeight: "calc(100vh - 6rem)" }}
               />
-            </aside>
+            </>
           )}
           <div className="flex-1 min-w-0">
             <NodeCheckList
@@ -436,6 +541,7 @@ export default function Page() {
           </div>
         </div>
       </section>
+      </div>
 
       <SettingsModal
         open={modal === "settings"}
@@ -553,19 +659,48 @@ function TestModeToggle({
   );
 }
 
-function NodeBlock({
+function fmtExecStarted(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${date}, ${time}`;
+}
+
+function CheckSvg({ small }: { small?: boolean } = {}) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={`${small ? "w-5 h-5" : "w-9 h-9"} text-white`}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+function XSvg({ small }: { small?: boolean } = {}) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={`${small ? "w-5 h-5" : "w-9 h-9"} text-white`}>
+      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1="18" y1="6" x2="6" y2="18" />
+    </svg>
+  );
+}
+function DotSvg({ small }: { small?: boolean } = {}) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${small ? "w-4 h-4" : "w-8 h-8"} text-[var(--muted-2)]`}>
+      <circle cx="12" cy="12" r="4" />
+    </svg>
+  );
+}
+
+function CompactNode({
   color,
   icon,
   label,
   onClick,
-  glow,
   glowN8n,
 }: {
   color: "blue" | "white" | "green" | "red" | "muted";
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
-  glow?: boolean;
   glowN8n?: boolean;
 }) {
   const bg = {
@@ -575,77 +710,36 @@ function NodeBlock({
     red: "bg-[#dc2626] border-[#b91c1c]",
     muted: "bg-[var(--panel)] border-[var(--border-strong)]",
   }[color];
-  const ring = glowN8n
-    ? "shadow-[0_0_0_3px_rgba(234,75,113,0.2),0_6px_16px_rgba(0,0,0,0.1)]"
-    : glow
-      ? {
-          blue: "shadow-[0_0_0_3px_rgba(37,99,235,0.2),0_6px_16px_rgba(0,0,0,0.1)]",
-          green: "shadow-[0_0_0_3px_rgba(5,150,105,0.2),0_6px_16px_rgba(0,0,0,0.1)]",
-          red: "shadow-[0_0_0_3px_rgba(220,38,38,0.2),0_6px_16px_rgba(0,0,0,0.1)]",
-          white: "shadow-[0_1px_2px_rgba(0,0,0,0.05),0_6px_16px_rgba(0,0,0,0.08)]",
-          muted: "shadow-[0_1px_2px_rgba(0,0,0,0.05),0_6px_16px_rgba(0,0,0,0.08)]",
-        }[color]
-      : "shadow-[0_1px_2px_rgba(0,0,0,0.05),0_6px_16px_rgba(0,0,0,0.08)]";
-
+  const ring = glowN8n ? "shadow-[0_0_0_2px_rgba(234,75,113,0.25)]" : "";
   return (
-    <div className="flex flex-col items-center w-[176px]">
-      <button
-        type="button"
-        onClick={onClick}
-        aria-label={label}
-        className={`w-[77px] h-[77px] rounded-2xl border flex items-center justify-center cursor-pointer transition-[filter] hover:brightness-110 ${bg} ${ring}`}
-      >
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-[var(--bg)] cursor-pointer min-w-0 max-w-[260px]"
+    >
+      <span className={`w-9 h-9 rounded-lg border flex items-center justify-center flex-shrink-0 ${bg} ${ring}`}>
         {icon}
-      </button>
-      <div className="mt-[14px] text-[13px] font-semibold text-center truncate max-w-full">{label}</div>
-    </div>
+      </span>
+      <span className="text-[12px] font-medium truncate">{label}</span>
+    </button>
   );
 }
 
-function fmtExecStarted(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
-  return `${date}, ${time}`;
-}
-
-function Wire() {
+function CompactArrow() {
   return (
-    <div className="w-[80px] h-[2px] bg-[var(--muted-2)] -mt-[34px] -mx-[10px] relative z-[1]">
-      <span
-        className="absolute -right-[1px] -top-[4px]"
-        style={{
-          width: 0,
-          height: 0,
-          borderLeft: "8px solid var(--muted-2)",
-          borderTop: "5px solid transparent",
-          borderBottom: "5px solid transparent",
-        }}
-      />
-    </div>
-  );
-}
-
-function CheckSvg() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-9 h-9 text-white">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-function XSvg() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-9 h-9 text-white">
-      <line x1="6" y1="6" x2="18" y2="18" />
-      <line x1="18" y1="6" x2="6" y2="18" />
-    </svg>
-  );
-}
-function DotSvg() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-8 h-8 text-[var(--muted-2)]">
-      <circle cx="12" cy="12" r="4" />
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="var(--muted-2)"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-4 h-4 flex-shrink-0"
+      aria-hidden
+    >
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <polyline points="14 6 20 12 14 18" />
     </svg>
   );
 }
