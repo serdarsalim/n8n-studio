@@ -13,7 +13,7 @@ const PAD = 14;
 // Workflow x is the flow direction (left→right in n8n editor). We rotate
 // 90° clockwise so x→screen.y (flow goes top-to-bottom). Tight vertical
 // spacing since this is a navigation aid, not a duplicate canvas.
-const FLOW_SCALE = 0.04;
+const FLOW_SCALE = 0.03;
 const BRANCH_SCALE = 0.42;
 // Max parallel branches shown side-by-side. Wider workflows snap into
 // these lanes, losing some n8n y-precision but staying readable.
