@@ -1,15 +1,15 @@
-# n8n-flow-tester
+# n8n-workflow-manager
 
-A free, open-source workflow tester for [n8n](https://n8n.io). Load a workflow, give it an input, hit run — and read the result in a humanely friendly view that n8n itself doesn't provide.
+A free, open-source workflow inspector and tester for [n8n](https://n8n.io). Load a workflow, give it an input, hit run — and read the result in a humanely friendly view that n8n itself doesn't provide.
 
 Not affiliated with n8n.io.
 
-## Status
+## What it does
 
-**v1 build in progress.** Next.js 16 + Tailwind v4 scaffold up, locked UI ported, n8n API proxy wired.
-
-- `AGENTS.md` — full spec, architecture, roadmap.
-- `mocks/mock-v3.html` — locked visual design.
+- **One-screen debugging.** Workflow graph, every node's resolved parameters (after `{{ }}` expressions evaluate), input, output, verdict — all visible without tab-switching.
+- **Test mode with safe mirrors.** Flip a toggle and Run sends your input through a transformed copy of the workflow. Every side-effect node (HTTP writes, Gmail/Slack sends, HubSpot writes, …) is replaced by a stub returning a plausible response. Reads, IF/Switch, Code, and respond-to-webhook stay real. No emails sent, no HubSpot rows created — but your routing logic and expressions execute against real upstream data.
+- **Smart payload inspection.** HTTP body params with stringified JSON-encoded HTML (HubSpot notes, Gmail messages, …) auto-unwrap and render the HTML inline. Long keys don't wrap, values right-align, deep trees flatten.
+- **Re-runnable from past executions.** Replay any historical input against today's workflow.
 
 ## Run it
 
@@ -20,20 +20,6 @@ npm run dev
 
 Open `http://localhost:3000`, hit the gear icon, paste your n8n URL + API key. Pick a workflow, paste input JSON, hit Run.
 
-## Quick concept
-
-```
-[ Input ] ── [ n8n workflow ] ── [ Result ]
-```
-
-Click any node to load it. Hit Run. See the per-node green/red verdict on one screen.
-
-**v1:** n8n runs the workflow for real — we fetch the execution data and render it clearly. (Requires a Webhook trigger node and a test-mode gate in your workflow for safety, same pattern you'd use today.)
-
-**v3a (now): auto-stub test mode.** Flip the Test mode toggle in the header and Run sends your input through a transformed copy of the workflow — every side-effect node (HTTP writes, Gmail/Slack sends, HubSpot writes, …) is replaced by a Set stub returning a plausible response. Reads, IF/Switch, Code, and respond-to-webhook stay real. No emails sent, no HubSpot rows created, no Slack pings — but your routing logic and expressions still execute against real upstream data. See [Test mode](#test-mode) below.
-
-**v3 (future):** local simulation + record/replay, so workflows without test gates can be tested safely.
-
 ## Test mode
 
 1. Load a workflow.
@@ -41,11 +27,11 @@ Click any node to load it. Hit Run. See the per-node green/red verdict on one sc
 3. Paste or pick an input (the past-execution picker is great here — replay any historical input against today's workflow).
 4. Hit **▶ Run (test)**.
 
-What happens under the hood:
+Under the hood:
 
 - The workflow JSON is fetched from n8n.
 - Every node outside the allowlist (triggers, IF/Switch, Filter, Merge, Code, Set, dateTime, respond-to-webhook, HTTP GET, HubSpot search/get/getAll, …) is replaced with a Set node that outputs a plausible JSON stub. HubSpot notes/contacts/associations get URL-aware shapes so downstream `$('Create Call Note').item.json.id` references still resolve.
-- The webhook path is suffixed `-test` (e.g. `synthflow-call-ended` → `synthflow-call-ended-test`).
+- The webhook path is suffixed `-test`.
 - The mirror is pushed to n8n as `(test) <your workflow name>` and activated. Subsequent runs reuse the same mirror.
 - The tool fires the test webhook, polls the execution, and renders the result the same way a normal run does. Verdict shows `Succeeded (test)` / `Error (test)`.
 
@@ -63,5 +49,9 @@ Caveats:
 - Next.js 16 (App Router) + React 19 + TypeScript
 - Tailwind v4
 - Next.js API routes proxy to n8n (avoids CORS, keeps your API key out of the browser network tab)
-- `localStorage` for settings and theme
-- No database, no Convex (until v2 saved fixtures or multi-device sync earn it)
+- `localStorage` for settings, theme, and per-workflow preferences
+- No database. Single-user, single-machine by design.
+
+## License
+
+MIT
