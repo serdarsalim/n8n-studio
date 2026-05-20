@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { readPrefs, type AppPrefs } from "@/lib/client";
 import type { NodeCheck } from "@/lib/types";
 import { JsonTree } from "./json-tree";
@@ -506,31 +506,124 @@ function renderHttpParams(
   showRaw: boolean,
 ): React.ReactNode[] {
   const p = check.parameters;
-  const rows: React.ReactNode[] = [];
   const method = stringify(p.method ?? p.requestMethod ?? "GET");
   const url = stringify(p.url);
-  rows.push(<Row key="method" k="method" v={<code>{method}</code>} />);
-  if (url) {
-    rows.push(<Row key="url" k="url" v={<UrlValue url={url} resolve={resolve} showRaw={showRaw} />} />);
+  // Build the full transport-detail rows once. In RAW we emit them in
+  // their natural order. In RENDERED we promote `body` to the top and
+  // tuck everything else into a collapsed "Request details" group so
+  // the eye lands on the payload first.
+  const methodRow = <Row key="method" k="method" v={<code>{method}</code>} />;
+  const urlRow = url ? (
+    <Row key="url" k="url" v={<UrlValue url={url} resolve={resolve} showRaw={showRaw} />} />
+  ) : null;
+  const authRow = p.authentication ? (
+    <Row key="auth" k="authentication" v={<code>{stringify(p.authentication)}</code>} />
+  ) : null;
+  const queryRow = p.sendQuery ? (
+    <Row
+      key="q"
+      k="sendQuery"
+      v={<code>true</code>}
+      valueExtra={resolveDeep(p.queryParameters, showRaw ? undefined : resolve)}
+    />
+  ) : null;
+  const headersRow = p.sendHeaders ? (
+    <Row
+      key="h"
+      k="sendHeaders"
+      v={<code>true</code>}
+      valueExtra={resolveDeep(p.headerParameters, showRaw ? undefined : resolve)}
+    />
+  ) : null;
+  const sendBodyRow = p.sendBody ? <Row key="b" k="sendBody" v={<code>true</code>} /> : null;
+  const rawBodyValue = p.sendBody ? (p.body ?? p.jsonBody ?? p.bodyParameters) : undefined;
+  // In RENDERED, unwrap n8n's `{parameters: [{name, value}, ...]}`
+  // fixedCollection serialization into a plain `{name: value, ...}` so
+  // HubSpot/Airtable/etc. bodies don't make you click through an
+  // array-of-pairs wrapper just to see the actual fields. RAW keeps the
+  // literal structure.
+  const bodyValue =
+    rawBodyValue !== undefined && !showRaw ? flattenBodyParameters(rawBodyValue) : rawBodyValue;
+  const bodyRow =
+    bodyValue !== undefined ? (
+      <Row
+        key="body"
+        k="body"
+        v={<ParamValue value={bodyValue} resolve={resolve} showRaw={showRaw} />}
+      />
+    ) : null;
+  const optsRow = p.options ? (
+    <Row
+      key="opts"
+      k="options"
+      v={<JsonTree value={resolveDeep(p.options, showRaw ? undefined : resolve)} />}
+    />
+  ) : null;
+
+  if (showRaw) {
+    return [methodRow, urlRow, authRow, queryRow, headersRow, sendBodyRow, bodyRow, optsRow].filter(
+      Boolean,
+    ) as React.ReactNode[];
   }
-  if (p.authentication) rows.push(<Row key="auth" k="authentication" v={<code>{stringify(p.authentication)}</code>} />);
-  if (p.sendQuery) rows.push(<Row key="q" k="sendQuery" v={<code>true</code>} valueExtra={resolveDeep(p.queryParameters, showRaw ? undefined : resolve)} />);
-  if (p.sendHeaders) rows.push(<Row key="h" k="sendHeaders" v={<code>true</code>} valueExtra={resolveDeep(p.headerParameters, showRaw ? undefined : resolve)} />);
-  if (p.sendBody) {
-    rows.push(<Row key="b" k="sendBody" v={<code>true</code>} />);
-    if (p.body || p.jsonBody || p.bodyParameters) {
-      const body = p.body ?? p.jsonBody ?? p.bodyParameters;
-      rows.push(
-        <Row
-          key="body"
-          k="body"
-          v={<ParamValue value={body} resolve={resolve} showRaw={showRaw} />}
-        />,
-      );
-    }
+
+  // RENDERED: body first, then a collapsed "Request details" group.
+  const details = [methodRow, urlRow, authRow, queryRow, headersRow, sendBodyRow, optsRow].filter(
+    Boolean,
+  ) as React.ReactNode[];
+  const rows: React.ReactNode[] = [];
+  if (bodyRow) rows.push(bodyRow);
+  if (details.length > 0) {
+    rows.push(<DetailsGroup key="details" rows={details} />);
   }
-  if (p.options) rows.push(<Row key="opts" k="options" v={<JsonTree value={resolveDeep(p.options, showRaw ? undefined : resolve)} />} />);
   return rows;
+}
+
+function hasAnyRenderable(v: unknown): boolean {
+  return hasAnyExpression(v) || hasAnyHtml(v);
+}
+
+// n8n serializes HTTP node bodyParameters as
+// `{ parameters: [{name: "...", value: ...}, ...] }`. In RENDERED we
+// unwrap it to `{name: value, ...}` so the user sees their actual
+// fields, not the transport wrapper. Returns the input unchanged if
+// the shape doesn't match.
+function flattenBodyParameters(body: unknown): unknown {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+  const obj = body as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  if (keys.length !== 1 || keys[0] !== "parameters") return body;
+  const arr = obj.parameters;
+  if (!Array.isArray(arr) || arr.length === 0) return body;
+  const out: Record<string, unknown> = {};
+  for (const item of arr) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return body;
+    const it = item as Record<string, unknown>;
+    if (typeof it.name !== "string") return body;
+    out[it.name] = it.value;
+  }
+  return out;
+}
+
+// Collapsible "Request details" wrapper for HTTP params in RENDERED mode.
+// Closed by default; one click reveals method/url/auth/headers/etc.
+function DetailsGroup({ rows }: { rows: React.ReactNode[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full text-left px-3 py-[6px] text-[11px] tracking-[0.3px] uppercase text-[var(--muted)] hover:text-[var(--text)] bg-transparent border-0 border-t border-[var(--border)] cursor-pointer flex items-center gap-2"
+      >
+        <span className="text-[var(--muted-2)] inline-block w-[14px] text-[14px] leading-none">
+          {open ? "▾" : "▸"}
+        </span>
+        <span>Request details</span>
+        <span className="text-[var(--muted-2)] normal-case tracking-normal">({rows.length})</span>
+      </button>
+      {open && <div>{rows}</div>}
+    </div>
+  );
 }
 
 function renderConditionParams(
@@ -825,7 +918,9 @@ function ParamTreeRow({
   depth: number;
 }) {
   const nestable = v !== null && typeof v === "object";
-  const [open, setOpen] = useState(depth < 1);
+  // RENDERED auto-expands the whole tree so users see resolved values
+  // immediately; RAW keeps the click-to-drill behavior past depth 0.
+  const [open, setOpen] = useState(!showRaw || depth < 1);
   const indent = depth * 8;
   if (!nestable) {
     // HTML iframe leaves get a stacked, full-width layout so the preview
@@ -843,11 +938,14 @@ function ParamTreeRow({
       );
     }
     return (
-      <div className="grid grid-cols-[120px_1fr] gap-3 px-2 py-[6px] min-w-0">
-        <div className="text-[var(--muted)] break-words" style={{ paddingLeft: indent }}>
+      <div className="grid grid-cols-[minmax(80px,max-content)_1fr] gap-3 px-2 py-[6px] min-w-0">
+        <div
+          className="text-[var(--muted)] whitespace-nowrap"
+          style={{ paddingLeft: indent }}
+        >
           {k}
         </div>
-        <div className="min-w-0 break-words">
+        <div className="min-w-0 break-words text-right">
           {typeof v === "string" ? (
             <ParamValue value={v} resolve={resolve} showRaw={showRaw} />
           ) : (
@@ -1007,16 +1105,35 @@ function HtmlValue({
   const baseStyle = dark
     ? `body{background:#1a1a1e;color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:12px;}a{color:#93c5fd;}`
     : `body{background:#ffffff;color:#2d2a26;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:12px;}`;
-  const html = `<!doctype html><html><head><base target="_blank"><style>${baseStyle}</style></head><body>${inner}</body></html>`;
+  // Auto-size: inject a small script that posts the body's scrollHeight
+  // up to the parent on load and any time content reflows (e.g. images
+  // load). Parent clamps and applies it as the iframe height.
+  const sizingScript = `(function(){function post(){parent.postMessage({type:"hv-h",h:document.documentElement.scrollHeight},"*");}window.addEventListener("load",post);try{new ResizeObserver(post).observe(document.documentElement);}catch(e){}post();})();`;
+  const html = `<!doctype html><html><head><base target="_blank"><style>${baseStyle}</style></head><body>${inner}<script>${sizingScript}</script></body></html>`;
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState<number>(120);
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      const data = e.data as { type?: string; h?: number } | null;
+      if (!data || data.type !== "hv-h" || typeof data.h !== "number") return;
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      // Clamp: at least readable, at most a screenful so monster payloads
+      // don't take over the page.
+      setHeight(Math.max(60, Math.min(800, data.h)));
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
   return (
     <div className="min-w-0">
       {mode === "rendered" ? (
         <iframe
+          ref={iframeRef}
           title="HTML preview"
           srcDoc={html}
-          sandbox="allow-popups allow-popups-to-escape-sandbox"
-          className="w-full h-[300px] border border-[var(--border)] rounded resize-y"
-          style={{ background: dark ? "#1a1a1e" : "#ffffff" }}
+          sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts"
+          className="w-full border border-[var(--border)] rounded block"
+          style={{ background: dark ? "#1a1a1e" : "#ffffff", height }}
         />
       ) : (
         <pre className="m-0 font-mono text-[12px] whitespace-pre-wrap break-words bg-[var(--panel)] border border-[var(--border)] rounded px-2 py-2 max-h-[300px] overflow-auto">
