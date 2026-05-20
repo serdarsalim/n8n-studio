@@ -29,7 +29,7 @@ export function WorkflowSidebar({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [activeOnly, setActiveOnly] = useState(true);
-  const [sort, setSort] = useState<Sort>("usage");
+  const [sort, setSort] = useState<Sort>("updated");
   const [filter, setFilter] = useState("");
   const [workflows, setWorkflows] = useState<N8nWorkflowSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
