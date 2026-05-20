@@ -100,7 +100,8 @@ function ParametersSection({
   // the resolver exists AND at least one parameter value contains a
   // `{{ }}` expression or an `=` prefix. A Code node body (plain JS) has
   // none, so we hide the toggle there.
-  const showToggle = !!resolve && hasAnyExpression(check.parameters);
+  const showToggle =
+    (!!resolve && hasAnyExpression(check.parameters)) || hasAnyHtml(check.parameters);
   return (
     <div className="border border-[var(--border)] rounded-md overflow-hidden">
       <div className="flex items-center justify-between px-3 py-[6px] bg-[var(--panel-soft-2)] text-[11px] tracking-[0.5px] uppercase font-semibold text-[var(--muted)]">
@@ -771,11 +772,125 @@ function ParamValue({
       <div className="font-mono text-[12px] break-words text-[var(--text)]">{display}</div>
     );
   }
-  // Object/array values: recursively resolve nested expressions unless raw.
+  // Object/array values: walk the tree and defer each string leaf back
+  // to ParamValue, so nested HTML / nested JSON-shaped strings render
+  // the same way a top-level string would.
   if (value && typeof value === "object") {
-    return <JsonTree value={resolveDeep(value, showRaw ? undefined : resolve)} />;
+    return <ParamTree value={value} resolve={resolve} showRaw={showRaw} depth={0} />;
   }
   return <JsonTree value={value} />;
+}
+
+function ParamTree({
+  value,
+  resolve,
+  showRaw,
+  depth,
+}: {
+  value: unknown;
+  resolve?: (template: string) => string;
+  showRaw: boolean;
+  depth: number;
+}) {
+  if (!value || typeof value !== "object") {
+    if (typeof value === "string")
+      return <ParamValue value={value} resolve={resolve} showRaw={showRaw} />;
+    return <Cell value={value} />;
+  }
+  const entries: Array<[string, unknown]> = Array.isArray(value)
+    ? (value as unknown[]).map((v, i) => [String(i), v])
+    : Object.entries(value as Record<string, unknown>);
+  return (
+    <div className="font-mono text-[12px] divide-y divide-[var(--border)]">
+      {entries.map(([k, v]) => (
+        <ParamTreeRow key={k} k={k} v={v} resolve={resolve} showRaw={showRaw} depth={depth} />
+      ))}
+    </div>
+  );
+}
+
+function ParamTreeRow({
+  k,
+  v,
+  resolve,
+  showRaw,
+  depth,
+}: {
+  k: string;
+  v: unknown;
+  resolve?: (template: string) => string;
+  showRaw: boolean;
+  depth: number;
+}) {
+  const nestable = v !== null && typeof v === "object";
+  const [open, setOpen] = useState(depth < 1);
+  const indent = depth * 14;
+  if (!nestable) {
+    return (
+      <div className="grid grid-cols-[180px_1fr] gap-3 px-2 py-[6px] min-w-0">
+        <div className="text-[var(--muted)] break-words" style={{ paddingLeft: indent }}>
+          {k}
+        </div>
+        <div className="min-w-0 break-words">
+          {typeof v === "string" ? (
+            <ParamValue value={v} resolve={resolve} showRaw={showRaw} />
+          ) : (
+            <Cell value={v} />
+          )}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((o) => !o);
+          }
+        }}
+        className="grid grid-cols-[180px_1fr] gap-3 px-2 py-[6px] min-w-0 cursor-pointer hover:bg-[var(--panel-soft-2)]"
+      >
+        <div
+          className="text-[var(--muted)] break-words flex items-center gap-1"
+          style={{ paddingLeft: indent }}
+        >
+          <span className="text-[var(--muted-2)] inline-block w-[10px]">{open ? "▾" : "▸"}</span>
+          <span>{k}</span>
+        </div>
+        <div className="min-w-0 break-words text-[var(--muted)] italic">{summary(v)}</div>
+      </div>
+      {open && (
+        <div>
+          <ParamTree value={v} resolve={resolve} showRaw={showRaw} depth={depth + 1} />
+        </div>
+      )}
+    </>
+  );
+}
+
+function hasAnyHtml(value: unknown): boolean {
+  if (typeof value === "string") {
+    if (looksLikeHtml(value)) return true;
+    // JSON-shaped string that contains HTML inside one of its fields.
+    const trimmed = value.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        return hasAnyHtml(JSON.parse(trimmed));
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+  if (Array.isArray(value)) return value.some(hasAnyHtml);
+  if (value && typeof value === "object")
+    return Object.values(value as Record<string, unknown>).some(hasAnyHtml);
+  return false;
 }
 
 const UNPARSEABLE = Symbol("unparseable");
