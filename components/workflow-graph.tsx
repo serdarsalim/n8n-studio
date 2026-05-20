@@ -56,10 +56,13 @@ export function WorkflowGraph({
 
   return (
     <svg
-      width={width}
-      height={height}
+      // Render at intrinsic aspect ratio but let the container drive the
+      // actual rendered width — when the pane is resized, the SVG scales
+      // via viewBox instead of clipping or scrolling.
+      width="100%"
       viewBox={`0 0 ${width} ${height}`}
-      className="block select-none"
+      preserveAspectRatio="xMidYMin meet"
+      className="block select-none w-full h-auto"
     >
       {/* Edges first so they sit under nodes */}
       {edges.map((e, i) => {

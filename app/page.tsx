@@ -488,8 +488,8 @@ export default function Page() {
             <>
               <aside
                 id="graph-pane"
-                className="flex-shrink-0 sticky top-4 self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2 overflow-auto relative"
-                style={{ width: graphPaneWidth, maxHeight: "calc(100vh - 6rem)" }}
+                className="flex-shrink-0 sticky top-4 self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2"
+                style={{ width: graphPaneWidth }}
               >
                 <WorkflowGraph
                   workflow={workflow}
