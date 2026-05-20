@@ -20,6 +20,12 @@ npm run dev
 
 Open `http://localhost:3000`, hit the gear icon, paste your n8n URL + API key. Pick a workflow, paste input JSON, hit Run.
 
+## Your data stays on your machine
+
+- **No env vars, no backend, no database.** Your n8n URL and API key live in your browser's `localStorage` and never leave the machine running the tool.
+- **No telemetry.** No analytics, no error reporting, nothing phones home.
+- **Self-hosted by default.** The Next.js API routes only proxy from your browser to your own n8n instance, using the URL and key you typed in. They exist to keep your API key out of the browser network tab and avoid CORS — not to ship anything anywhere.
+
 ## Test mode
 
 1. Load a workflow.
