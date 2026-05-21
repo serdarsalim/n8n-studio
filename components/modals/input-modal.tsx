@@ -355,7 +355,7 @@ function PayloadRow({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          if (confirm(`Delete payload “${payload.name}”?`)) onDelete();
+          onDelete();
         }}
         title="Delete payload"
         aria-label="Delete payload"

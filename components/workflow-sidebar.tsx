@@ -140,9 +140,12 @@ export function WorkflowSidebar({
 
   const sourcesKey = sources.map((c) => `${c.id}|${c.n8nUrl}`).join(",");
 
-  // Background-refresh trigger. Bumped by the polling interval and by the
-  // manual refresh button. Each bump re-runs the fetch effect below.
-  const [tick, setTick] = useState(0);
+  // Refresh trigger. Bumped by the polling interval and by the manual
+  // refresh button. `manual` flag controls whether the user sees a spinner
+  // and a status toast (we want background polls to be silent).
+  const [tick, setTick] = useState<{ n: number; manual: boolean }>({ n: 0, manual: false });
+  const [refreshing, setRefreshing] = useState(false);
+  const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   useEffect(() => {
     setCounts(readTestCounts());
@@ -158,14 +161,15 @@ export function WorkflowSidebar({
       return;
     }
     let cancelled = false;
-    // Only show the placeholder spinner on the very first load, not on
-    // background-poll refreshes — those should be invisible if nothing changed.
+    // Show the placeholder spinner on the very first load, the refresh-icon
+    // spinner on manual refreshes, and nothing on silent background polls.
     if (workflows === null) setLoading(true);
+    if (tick.manual) setRefreshing(true);
     setError(null);
-    // Fetch workflows from every source in parallel, tagging each row with
-    // the connection it came from. Per-source failures don't sink the whole
-    // load — we surface them only when EVERY source failed.
-    Promise.all(
+    let workflowsChanged = false;
+    let workflowsCount = 0;
+    let workflowsFailed = false;
+    const wfPromise = Promise.all(
       sources.map((c) =>
         apiListWorkflows({ n8nUrl: c.n8nUrl, apiKey: c.apiKey })
           .then((wfs) =>
@@ -175,25 +179,26 @@ export function WorkflowSidebar({
               connectionName: c.name,
             })),
           )
-          .catch(() => [] as TaggedWorkflow[]),
+          .catch(() => {
+            workflowsFailed = true;
+            return [] as TaggedWorkflow[];
+          }),
       ),
     )
       .then((lists) => {
         if (cancelled) return;
         const merged = lists.flat();
-        // Diff-aware: only replace state if the list actually changed.
-        // Prevents React re-renders / row reorder when the poll returns
-        // identical data — which is the common case.
-        setWorkflows((prev) =>
-          prev && jsonEqual(prev, merged) ? prev : merged,
-        );
-        if (merged.length === 0) setError("No workflows returned.");
+        workflowsCount = merged.length;
+        setWorkflows((prev) => {
+          if (prev && jsonEqual(prev, merged)) return prev;
+          workflowsChanged = true;
+          return merged;
+        });
+        if (merged.length === 0 && !tick.manual) setError("No workflows returned.");
       })
       .finally(() => { if (!cancelled) setLoading(false); });
 
-    // Recent executions per source — used for both the status dot color and
-    // the "Recently run" sort. Failures are non-fatal (dots just stay grey).
-    Promise.all(
+    const execPromise = Promise.all(
       sources.map((c) =>
         apiListRecentExecutions({ n8nUrl: c.n8nUrl, apiKey: c.apiKey }, 250)
           .then((execs) => ({ connectionId: c.id, execs }))
@@ -216,22 +221,46 @@ export function WorkflowSidebar({
       setLastRunAt((prev) => (jsonEqual(prev, runAtMap) ? prev : runAtMap));
     });
 
+    if (tick.manual) {
+      Promise.all([wfPromise, execPromise]).then(() => {
+        if (cancelled) return;
+        setRefreshing(false);
+        if (workflowsFailed) {
+          setToast({ kind: "err", text: "Couldn't reach n8n" });
+        } else {
+          const noun = workflowsCount === 1 ? "workflow" : "workflows";
+          setToast({
+            kind: "ok",
+            text: workflowsChanged
+              ? `Refreshed · ${workflowsCount} ${noun} (updated)`
+              : `Refreshed · ${workflowsCount} ${noun} (no changes)`,
+          });
+        }
+      });
+    }
+
     return () => { cancelled = true; };
     // sourcesKey captures the connection identity + url changes that matter;
     // re-deriving `sources` doesn't need to re-trigger when refs change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourcesKey, refreshTick, showAll, tick]);
 
+  // Auto-clear the toast after a moment.
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 1500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   // Auto-refresh every 30s, but only while the tab is visible. Pauses on
   // backgrounded tabs, resumes (with an immediate catch-up tick) on return.
   useEffect(() => {
     let intervalId: number | null = null;
+    const bumpSilent = () => setTick((prev) => ({ n: prev.n + 1, manual: false }));
     const start = () => {
       if (intervalId !== null) return;
       intervalId = window.setInterval(() => {
-        if (document.visibilityState === "visible") {
-          setTick((n) => n + 1);
-        }
+        if (document.visibilityState === "visible") bumpSilent();
       }, 30_000);
     };
     const stop = () => {
@@ -242,7 +271,7 @@ export function WorkflowSidebar({
     };
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
-        setTick((n) => n + 1);
+        bumpSilent();
         start();
       } else {
         stop();
@@ -256,7 +285,7 @@ export function WorkflowSidebar({
     };
   }, []);
 
-  const manualRefresh = () => setTick((n) => n + 1);
+  const manualRefresh = () => setTick((prev) => ({ n: prev.n + 1, manual: true }));
 
   // Refresh tested-count badge each time the loaded workflow changes —
   // bumpTestCount fires on pick, and we want the sidebar count to reflect it.
@@ -311,21 +340,18 @@ export function WorkflowSidebar({
         },
       ];
     }
-    const order: string[] = [];
-    const map = new Map<string, { connectionId: string; connectionName: string; rows: TaggedWorkflow[] }>();
-    for (const w of visible) {
-      if (!map.has(w.connectionId)) {
-        order.push(w.connectionId);
-        map.set(w.connectionId, {
-          connectionId: w.connectionId,
-          connectionName: w.connectionName,
-          rows: [],
-        });
-      }
-      map.get(w.connectionId)!.rows.push(w);
-    }
-    return order.map((id) => map.get(id)!);
-  }, [visible, showAll]);
+    // In show-all mode, group order follows the connection order configured
+    // in Settings — never the sort. Workflows shuffle within a group when
+    // the user changes sort, but the group headers themselves stay put so
+    // you don't lose your spot.
+    return connections.connections
+      .map((c) => ({
+        connectionId: c.id,
+        connectionName: c.name,
+        rows: visible.filter((w) => w.connectionId === c.id),
+      }))
+      .filter((g) => g.rows.length > 0);
+  }, [visible, showAll, connections.connections]);
 
   const toggle = () => {
     const next = !collapsed;
@@ -445,11 +471,12 @@ export function WorkflowSidebar({
         <button
           type="button"
           onClick={manualRefresh}
-          title="Refresh workflows"
+          disabled={loading || refreshing}
+          title={loading || refreshing ? "Refreshing…" : "Refresh workflows"}
           aria-label="Refresh workflows"
-          className="w-7 h-7 rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] flex items-center justify-center cursor-pointer flex-shrink-0"
+          className="w-7 h-7 rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] flex items-center justify-center cursor-pointer flex-shrink-0 disabled:cursor-default disabled:opacity-60 disabled:hover:text-[var(--muted)]"
         >
-          <RefreshIcon spinning={loading} />
+          <RefreshIcon spinning={loading || refreshing} />
         </button>
         <SortMenu
           value={sort}
@@ -458,6 +485,19 @@ export function WorkflowSidebar({
           onToggleActive={toggleActive}
         />
       </div>
+
+      {toast && (
+        <div
+          aria-live="polite"
+          className={`absolute left-1/2 -translate-x-1/2 top-[90px] z-20 px-3 py-1.5 text-[11px] font-medium rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.18)] pointer-events-none ${
+            toast.kind === "ok"
+              ? "bg-[var(--text)] text-[var(--panel)]"
+              : "bg-[var(--red)] text-white"
+          }`}
+        >
+          {toast.text}
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 pt-2 pb-[50vh] [scrollbar-width:thin] [scrollbar-color:var(--border-strong)_transparent] [&::-webkit-scrollbar]:w-[5px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[var(--border-strong)] [&::-webkit-scrollbar-thumb]:rounded-full">
         {error && (
