@@ -147,7 +147,7 @@ function NodeCheckRow({
           }
         }}
         title={check.status === "skipped" ? "Branch not taken" : undefined}
-        className={`w-full flex items-center gap-[10px] px-[14px] py-[12px] text-[14px] text-left ${
+        className={`w-full flex items-center gap-[10px] px-[14px] py-[7px] text-[14px] text-left ${
           open ? "bg-[var(--panel-soft)]" : ""
         } ${hasDetail ? "cursor-pointer hover:bg-[var(--panel-soft)]" : "cursor-default"}`}
       >

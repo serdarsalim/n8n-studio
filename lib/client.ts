@@ -1,11 +1,19 @@
 "use client";
 
-import type { AppSettings, N8nExecution, N8nWorkflow, N8nWorkflowSummary } from "./types";
+import type {
+  AppSettings,
+  Connection,
+  ConnectionsBlob,
+  N8nExecution,
+  N8nWorkflow,
+  N8nWorkflowSummary,
+} from "./types";
 
 // Mirror of N8nExecutionSummary in lib/n8n.ts — kept here so the client
 // bundle never pulls in the server-only n8n module.
 export interface ExecutionSummary {
   id: string;
+  workflowId?: string;
   startedAt?: string;
   stoppedAt?: string;
   status?: string;
@@ -14,11 +22,15 @@ export interface ExecutionSummary {
 }
 
 const SETTINGS_KEY = "n8n-flow-tester:settings";
+const CONNECTIONS_KEY = "n8n-flow-tester:connections";
 const THEME_KEY = "theme";
 const TEST_COUNTS_KEY = "n8n-flow-tester:testCounts";
 const SESSION_KEY = "n8n-flow-tester:session";
 const PREFS_KEY = "n8n-flow-tester:prefs";
-const FIXTURES_KEY = "n8n-flow-tester:fixtures";
+const TEST_PAYLOADS_KEY = "n8n-flow-tester:testPayloads";
+// Legacy storage key used before test payloads replaced fixtures. Read once
+// on first access to migrate the user's saved payloads, then dropped.
+const LEGACY_FIXTURES_KEY = "n8n-flow-tester:fixtures";
 const EXEC_ACCESS_KEY = "n8n-flow-tester:execAccess";
 
 export function readSettings(): AppSettings {
@@ -35,6 +47,65 @@ export function readSettings(): AppSettings {
 
 export function writeSettings(s: AppSettings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+}
+
+export function newConnectionId(): string {
+  return `cn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+const EMPTY_CONNECTIONS: ConnectionsBlob = { connections: [], activeId: null };
+
+export function readConnections(): ConnectionsBlob {
+  if (typeof window === "undefined") return EMPTY_CONNECTIONS;
+  try {
+    const raw = localStorage.getItem(CONNECTIONS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<ConnectionsBlob>;
+      const connections = Array.isArray(parsed.connections) ? parsed.connections : [];
+      const activeId =
+        parsed.activeId && connections.some((c) => c.id === parsed.activeId)
+          ? parsed.activeId
+          : (connections[0]?.id ?? null);
+      return { connections, activeId };
+    }
+    // Migrate legacy single-connection settings on first read.
+    const legacy = localStorage.getItem(SETTINGS_KEY);
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as Partial<AppSettings>;
+      if (parsed.n8nUrl || parsed.apiKey) {
+        const conn: Connection = {
+          id: newConnectionId(),
+          name: "Default",
+          n8nUrl: parsed.n8nUrl ?? "",
+          apiKey: parsed.apiKey ?? "",
+        };
+        const blob: ConnectionsBlob = { connections: [conn], activeId: conn.id };
+        localStorage.setItem(CONNECTIONS_KEY, JSON.stringify(blob));
+        return blob;
+      }
+    }
+  } catch {}
+  return EMPTY_CONNECTIONS;
+}
+
+export function writeConnections(blob: ConnectionsBlob) {
+  localStorage.setItem(CONNECTIONS_KEY, JSON.stringify(blob));
+  // Keep legacy single-settings key in sync with the active connection,
+  // so anything still reading readSettings() gets the right creds.
+  const active = activeConnection(blob);
+  localStorage.setItem(
+    SETTINGS_KEY,
+    JSON.stringify({ n8nUrl: active?.n8nUrl ?? "", apiKey: active?.apiKey ?? "" }),
+  );
+}
+
+export function activeConnection(blob: ConnectionsBlob): Connection | null {
+  return blob.connections.find((c) => c.id === blob.activeId) ?? null;
+}
+
+export function activeSettings(blob: ConnectionsBlob): AppSettings {
+  const active = activeConnection(blob);
+  return { n8nUrl: active?.n8nUrl ?? "", apiKey: active?.apiKey ?? "" };
 }
 
 export function readTheme(): "light" | "dark" {
@@ -72,7 +143,7 @@ export interface SessionBlob {
   execution: N8nExecution | null;
   inputText: string;
   inputJson: unknown;
-  selectedFixtureId: string | null;
+  selectedPayloadId: string | null;
 }
 
 const EMPTY_SESSION: SessionBlob = {
@@ -80,7 +151,7 @@ const EMPTY_SESSION: SessionBlob = {
   execution: null,
   inputText: "",
   inputJson: {},
-  selectedFixtureId: null,
+  selectedPayloadId: null,
 };
 
 export function readSession(): SessionBlob {
@@ -88,13 +159,17 @@ export function readSession(): SessionBlob {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return EMPTY_SESSION;
-    const parsed = JSON.parse(raw) as Partial<SessionBlob>;
+    const parsed = JSON.parse(raw) as Partial<SessionBlob> & {
+      selectedFixtureId?: string | null;
+    };
     return {
       workflow: parsed.workflow ?? null,
       execution: parsed.execution ?? null,
       inputText: parsed.inputText ?? "",
       inputJson: parsed.inputJson ?? {},
-      selectedFixtureId: parsed.selectedFixtureId ?? null,
+      // Accept the legacy field name so a user who upgrades mid-session
+      // doesn't lose their loaded payload selection on first reload.
+      selectedPayloadId: parsed.selectedPayloadId ?? parsed.selectedFixtureId ?? null,
     };
   } catch {
     return EMPTY_SESSION;
@@ -102,19 +177,23 @@ export function readSession(): SessionBlob {
 }
 
 // UI preferences — defaults the user can override and have stick.
+export type SidebarSort = "usage" | "name" | "updated" | "created" | "run";
+
 export interface AppPrefs {
   paramsDefaultOpen: boolean;
   dataViewDefault: "table" | "json";
   singleItemAsList: boolean;
-  testMode: boolean;
+  sidebarSortDefault: SidebarSort;
 }
 
 export const DEFAULT_PREFS: AppPrefs = {
   paramsDefaultOpen: true,
   dataViewDefault: "table",
   singleItemAsList: true,
-  testMode: false,
+  sidebarSortDefault: "updated",
 };
+
+const VALID_SORTS: SidebarSort[] = ["usage", "name", "updated", "created", "run"];
 
 export function readPrefs(): AppPrefs {
   if (typeof window === "undefined") return DEFAULT_PREFS;
@@ -122,11 +201,13 @@ export function readPrefs(): AppPrefs {
     const raw = localStorage.getItem(PREFS_KEY);
     if (!raw) return DEFAULT_PREFS;
     const parsed = JSON.parse(raw) as Partial<AppPrefs>;
+    const sort = parsed.sidebarSortDefault;
     return {
       paramsDefaultOpen: parsed.paramsDefaultOpen ?? DEFAULT_PREFS.paramsDefaultOpen,
       dataViewDefault: parsed.dataViewDefault ?? DEFAULT_PREFS.dataViewDefault,
       singleItemAsList: parsed.singleItemAsList ?? DEFAULT_PREFS.singleItemAsList,
-      testMode: parsed.testMode ?? DEFAULT_PREFS.testMode,
+      sidebarSortDefault:
+        sort && VALID_SORTS.includes(sort) ? sort : DEFAULT_PREFS.sidebarSortDefault,
     };
   } catch {
     return DEFAULT_PREFS;
@@ -215,6 +296,24 @@ export async function apiListExecutions(
   return data.executions ?? [];
 }
 
+// Globally-scoped execution list — returns the most recent executions across
+// every workflow on the instance. Used by the sidebar to color workflow rows
+// by last-run status without making one request per workflow.
+export async function apiListRecentExecutions(
+  s: AppSettings,
+  limit = 250,
+): Promise<ExecutionSummary[]> {
+  const res = await fetch(`/api/executions?limit=${limit}`, {
+    headers: authHeaders(s),
+  });
+  const data = (await parseJsonOrThrow(res, "GET /api/executions")) as {
+    executions?: ExecutionSummary[];
+    error?: string;
+  };
+  if (!res.ok) throw new Error(data.error || "Failed to list executions");
+  return data.executions ?? [];
+}
+
 export async function apiGetExecution(s: AppSettings, id: string): Promise<N8nExecution> {
   const res = await fetch(`/api/executions/${id}`, { headers: authHeaders(s) });
   const data = (await parseJsonOrThrow(res, `GET /api/executions/${id}`)) as {
@@ -248,181 +347,116 @@ export async function apiRun(
   };
 }
 
-export interface TestRunResult {
-  executionId: string | null;
-  testWorkflowId: string;
-  testWorkflowCreated: boolean;
-  testWebhookPath: string;
-  stubbedCount: number;
-  stubbedNodes: string[];
-  subWorkflowMirrorCount: number;
-  subWorkflowMirrors: Record<string, string>;
-  webhookResponse: unknown;
-  note?: string;
-}
-
-export async function apiTestRun(
-  s: AppSettings,
-  args: { workflowId: string; payload: unknown },
-): Promise<TestRunResult> {
-  const res = await fetch("/api/test-run", {
-    method: "POST",
-    headers: { ...authHeaders(s), "Content-Type": "application/json" },
-    body: JSON.stringify(args),
-  });
-  const data = (await parseJsonOrThrow(res, "POST /api/test-run")) as Partial<TestRunResult> & {
-    error?: string;
-  };
-  if (!res.ok) throw new Error(data.error || "Test run failed");
-  return {
-    executionId: data.executionId ?? null,
-    testWorkflowId: data.testWorkflowId ?? "",
-    testWorkflowCreated: data.testWorkflowCreated ?? false,
-    testWebhookPath: data.testWebhookPath ?? "",
-    stubbedCount: data.stubbedCount ?? 0,
-    stubbedNodes: data.stubbedNodes ?? [],
-    subWorkflowMirrorCount: data.subWorkflowMirrorCount ?? 0,
-    subWorkflowMirrors: data.subWorkflowMirrors ?? {},
-    webhookResponse: data.webhookResponse,
-    note: data.note,
-  };
-}
-
-// Look up the test mirror's workflow ID for a given source workflow,
-// without pushing or modifying anything. Returns null if no mirror exists.
-export async function apiResolveTestMirror(
-  s: AppSettings,
-  sourceWorkflowName: string,
-): Promise<{ id: string | null }> {
-  const list = await apiListWorkflows(s);
-  const target = `(test) ${sourceWorkflowName}`;
-  const found = list.find((w) => w.name === target);
-  return { id: found?.id ?? null };
-}
-
-export async function apiDeleteTestMirror(
-  s: AppSettings,
-  workflowId: string,
-): Promise<{ deleted: boolean }> {
-  const res = await fetch(`/api/test-mirror?workflowId=${encodeURIComponent(workflowId)}`, {
-    method: "DELETE",
-    headers: authHeaders(s),
-  });
-  const data = (await parseJsonOrThrow(res, "DELETE /api/test-mirror")) as {
-    deleted?: boolean;
-    error?: string;
-  };
-  if (!res.ok) throw new Error(data.error || "Failed to delete test mirror");
-  return { deleted: data.deleted ?? false };
-}
-
-// ─── Fixtures ──────────────────────────────────────────────────────────
-// Named, reusable JSON inputs, scoped per workflow. Stored as one blob
-// keyed by workflow id so loading one workflow shows only its fixtures.
-// Fixtures sourced from past executions carry executionId for lineage.
-export interface Fixture {
+// ─── Test payloads ─────────────────────────────────────────────────────
+// Named, reusable JSON inputs the user crafts to test scenarios against a
+// workflow. Scoped per-workflow and stored as one blob keyed by workflow id.
+// Created only via explicit user action (no auto-creation from executions).
+export interface TestPayload {
   id: string;
   name: string;
   text: string;
   json: unknown;
-  source: "manual" | "execution";
-  executionId?: string;
   createdAt: number;
 }
 
-function readAllFixtures(): Record<string, Fixture[]> {
+function readAllTestPayloads(): Record<string, TestPayload[]> {
   if (typeof window === "undefined") return {};
   try {
-    const raw = localStorage.getItem(FIXTURES_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, Fixture[]>) : {};
+    const raw = localStorage.getItem(TEST_PAYLOADS_KEY);
+    if (raw) return JSON.parse(raw) as Record<string, TestPayload[]>;
+    // One-time migration from the old fixtures key. We drop entries that
+    // were auto-created from past executions — those polluted the list and
+    // were the main reason for the rename. Manual entries are preserved.
+    const legacy = localStorage.getItem(LEGACY_FIXTURES_KEY);
+    if (!legacy) return {};
+    const parsed = JSON.parse(legacy) as Record<
+      string,
+      Array<{
+        id: string;
+        name: string;
+        text: string;
+        json: unknown;
+        source?: string;
+        createdAt: number;
+      }>
+    >;
+    const migrated: Record<string, TestPayload[]> = {};
+    for (const [wfId, list] of Object.entries(parsed)) {
+      const cleaned = list
+        .filter((p) => p.source !== "execution")
+        .map<TestPayload>((p) => ({
+          id: p.id,
+          name: p.name,
+          text: p.text,
+          json: p.json,
+          createdAt: p.createdAt,
+        }));
+      if (cleaned.length > 0) migrated[wfId] = cleaned;
+    }
+    localStorage.setItem(TEST_PAYLOADS_KEY, JSON.stringify(migrated));
+    return migrated;
   } catch {
     return {};
   }
 }
 
-function writeAllFixtures(all: Record<string, Fixture[]>) {
+function writeAllTestPayloads(all: Record<string, TestPayload[]>) {
   try {
-    localStorage.setItem(FIXTURES_KEY, JSON.stringify(all));
+    localStorage.setItem(TEST_PAYLOADS_KEY, JSON.stringify(all));
   } catch {
     // quota — drop silently; user can clear via DevTools if needed.
   }
 }
 
-export function readFixtures(workflowId: string): Fixture[] {
-  return readAllFixtures()[workflowId] ?? [];
+export function readTestPayloads(workflowId: string): TestPayload[] {
+  return readAllTestPayloads()[workflowId] ?? [];
 }
 
-export function writeFixtures(workflowId: string, fixtures: Fixture[]) {
-  const all = readAllFixtures();
-  all[workflowId] = fixtures;
-  writeAllFixtures(all);
+export function writeTestPayloads(workflowId: string, payloads: TestPayload[]) {
+  const all = readAllTestPayloads();
+  all[workflowId] = payloads;
+  writeAllTestPayloads(all);
 }
 
-function newFixtureId(): string {
-  return `fx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+function newTestPayloadId(): string {
+  return `tp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function createFixture(
+export function createTestPayload(
   workflowId: string,
   name: string,
   text: string,
   json: unknown,
-): Fixture {
-  const fixture: Fixture = {
-    id: newFixtureId(),
+): TestPayload {
+  const payload: TestPayload = {
+    id: newTestPayloadId(),
     name,
     text,
     json,
-    source: "manual",
     createdAt: Date.now(),
   };
-  writeFixtures(workflowId, [...readFixtures(workflowId), fixture]);
-  return fixture;
+  writeTestPayloads(workflowId, [...readTestPayloads(workflowId), payload]);
+  return payload;
 }
 
-// Idempotent: returns the existing fixture for this execution if we
-// already have one. Otherwise creates one with the given name.
-export function upsertFixtureFromExecution(
+export function updateTestPayload(
   workflowId: string,
-  executionId: string,
-  name: string,
-  text: string,
-  json: unknown,
-): Fixture {
-  const fixtures = readFixtures(workflowId);
-  const existing = fixtures.find((f) => f.executionId === executionId);
-  if (existing) return existing;
-  const fixture: Fixture = {
-    id: newFixtureId(),
-    name,
-    text,
-    json,
-    source: "execution",
-    executionId,
-    createdAt: Date.now(),
-  };
-  writeFixtures(workflowId, [...fixtures, fixture]);
-  return fixture;
-}
-
-export function updateFixture(
-  workflowId: string,
-  fixtureId: string,
-  patch: Partial<Pick<Fixture, "name" | "text" | "json">>,
-): Fixture | null {
-  const fixtures = readFixtures(workflowId);
-  const idx = fixtures.findIndex((f) => f.id === fixtureId);
+  payloadId: string,
+  patch: Partial<Pick<TestPayload, "name" | "text" | "json">>,
+): TestPayload | null {
+  const payloads = readTestPayloads(workflowId);
+  const idx = payloads.findIndex((p) => p.id === payloadId);
   if (idx === -1) return null;
-  const updated = { ...fixtures[idx], ...patch };
-  fixtures[idx] = updated;
-  writeFixtures(workflowId, fixtures);
+  const updated = { ...payloads[idx], ...patch };
+  payloads[idx] = updated;
+  writeTestPayloads(workflowId, payloads);
   return updated;
 }
 
-export function deleteFixture(workflowId: string, fixtureId: string) {
-  writeFixtures(
+export function deleteTestPayload(workflowId: string, payloadId: string) {
+  writeTestPayloads(
     workflowId,
-    readFixtures(workflowId).filter((f) => f.id !== fixtureId),
+    readTestPayloads(workflowId).filter((p) => p.id !== payloadId),
   );
 }
 

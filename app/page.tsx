@@ -1,33 +1,27 @@
 "use client";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { GearIcon, MoonIcon, SunIcon } from "@/components/icons";
 import { NodeCheckList } from "@/components/node-check-list";
 import { WorkflowGraph } from "@/components/workflow-graph";
 import { ExecutionsModal } from "@/components/modals/executions-modal";
 import { InputModal } from "@/components/modals/input-modal";
 import { Btn } from "@/components/modals/modal";
-import { SettingsModal } from "@/components/modals/settings-modal";
 import { WorkflowModal } from "@/components/modals/workflow-modal";
 import { WorkflowSidebar } from "@/components/workflow-sidebar";
 import {
+  activeSettings,
   apiGetExecution,
   apiGetWorkflow,
   apiListExecutions,
-  apiResolveTestMirror,
   apiRun,
-  apiTestRun,
   bumpExecAccess,
   bumpTestCount,
-  readPrefs,
+  readConnections,
   readSession,
-  readSettings,
   readTheme,
   setTheme,
-  upsertFixtureFromExecution,
-  writePrefs,
+  writeConnections,
   writeSession,
-  writeSettings,
 } from "@/lib/client";
 import {
   buildExpressionResolver,
@@ -36,12 +30,16 @@ import {
   findWebhookUrl,
   parseExecution,
 } from "@/lib/execution";
-import type { AppSettings, N8nExecution, N8nWorkflow, NodeCheck } from "@/lib/types";
+import type { ConnectionsBlob, N8nExecution, N8nWorkflow, NodeCheck } from "@/lib/types";
 
-type Modal = "settings" | "workflow" | "input" | "executions" | null;
+type Modal = "workflow" | "input" | "executions" | null;
 
 export default function Page() {
-  const [settings, setSettings] = useState<AppSettings>({ n8nUrl: "", apiKey: "" });
+  const [connections, setConnections] = useState<ConnectionsBlob>({
+    connections: [],
+    activeId: null,
+  });
+  const settings = useMemo(() => activeSettings(connections), [connections]);
   const [dark, setDark] = useState(false);
   const [modal, setModal] = useState<Modal>(null);
 
@@ -50,18 +48,12 @@ export default function Page() {
   const [inputJson, setInputJson] = useState<unknown>({});
   // Currently selected fixture in the input modal. null means the editor
   // is in "Current input" mode (not tied to any saved fixture).
-  const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
+  const [selectedPayloadId, setSelectedPayloadId] = useState<string | null>(null);
 
   const [execution, setExecution] = useState<N8nExecution | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
-  const [testMode, setTestModeState] = useState(false);
-  const [testRunNote, setTestRunNote] = useState<string | null>(null);
-  // Mirror workflow ID for the currently-loaded source. Populated after a
-  // test run OR by resolving the mirror by name when test mode toggles on.
-  // Used to point the Executions modal at test runs instead of prod runs.
-  const [testMirrorId, setTestMirrorId] = useState<string | null>(null);
 
   // Drag-resizable width of the WorkflowGraph pane. Persisted in
   // localStorage; default is a comfortable starting size.
@@ -71,15 +63,14 @@ export default function Page() {
   // Hydrate persisted state.
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
-    setSettings(readSettings());
+    setConnections(readConnections());
     setDark(readTheme() === "dark");
     const session = readSession();
     setWorkflow(session.workflow);
     setExecution(session.execution);
     setInputText(session.inputText);
     setInputJson(session.inputJson);
-    setSelectedFixtureId(session.selectedFixtureId);
-    setTestModeState(readPrefs().testMode);
+    setSelectedPayloadId(session.selectedPayloadId);
     try {
       const w = Number(localStorage.getItem("n8n-ft.graphPane.width"));
       if (Number.isFinite(w) && w >= 120 && w <= 900) setGraphPaneWidth(w);
@@ -122,35 +113,12 @@ export default function Page() {
     };
   }, [graphDragging]);
 
-  const setTestMode = (next: boolean) => {
-    setTestModeState(next);
-    const current = readPrefs();
-    writePrefs({ ...current, testMode: next });
-    setTestRunNote(null);
-  };
-
-  // Resolve the test mirror ID whenever test mode flips on or the loaded
-  // workflow changes. Lets the Executions modal point at the mirror's
-  // runs instead of the source workflow's runs.
-  useEffect(() => {
-    if (!hydrated) return;
-    if (!testMode || !workflow || !settings.n8nUrl || !settings.apiKey) {
-      setTestMirrorId(null);
-      return;
-    }
-    let cancelled = false;
-    apiResolveTestMirror(settings, workflow.name)
-      .then(({ id }) => { if (!cancelled) setTestMirrorId(id); })
-      .catch(() => { if (!cancelled) setTestMirrorId(null); });
-    return () => { cancelled = true; };
-  }, [hydrated, testMode, workflow, settings.n8nUrl, settings.apiKey]);
-
   // Persist working state on any change — but only after hydration so we
   // don't overwrite stored values with the empty initial state on mount.
   useEffect(() => {
     if (!hydrated) return;
-    writeSession({ workflow, execution, inputText, inputJson, selectedFixtureId });
-  }, [hydrated, workflow, execution, inputText, inputJson, selectedFixtureId]);
+    writeSession({ workflow, execution, inputText, inputJson, selectedPayloadId });
+  }, [hydrated, workflow, execution, inputText, inputJson, selectedPayloadId]);
 
   const checks: NodeCheck[] = useMemo(
     () => (workflow ? parseExecution(workflow, execution) : []),
@@ -171,29 +139,24 @@ export default function Page() {
   );
 
   const fired = checks.filter((c) => c.fired).length;
-  // If the execution belongs to a different workflow than the loaded
-  // source, it ran against the test mirror — annotate the verdict.
-  const ranOnMirror =
-    !!execution && !!workflow && execution.workflowId !== workflow.id;
   // Mirror n8n's execution.status verbatim — never derive. Branching
   // workflows correctly skip the path not taken; that isn't a failure.
   const verdict = ((): { label: string; sub: string; ok: boolean | null } | null => {
     if (!execution) return null;
     const status = execution.status;
     const firedSub = `${fired} of ${checks.length} nodes fired`;
-    const suffix = ranOnMirror ? " (test)" : "";
-    if (status === "success") return { label: `Succeeded${suffix}`, sub: firedSub, ok: true };
+    if (status === "success") return { label: "Succeeded", sub: firedSub, ok: true };
     if (status === "error") {
       const err = execution.data?.resultData?.error;
       const errSub = err?.message
         ? `${err.node?.name ? `${err.node.name}: ` : ""}${err.message}`
         : firedSub;
-      return { label: `Error${suffix}`, sub: errSub, ok: false };
+      return { label: "Error", sub: errSub, ok: false };
     }
-    if (status === "canceled") return { label: `Canceled${suffix}`, sub: firedSub, ok: false };
-    if (status === "running") return { label: `Running${suffix}`, sub: firedSub, ok: null };
-    if (status === "waiting") return { label: `Waiting${suffix}`, sub: firedSub, ok: null };
-    if (status === "new") return { label: `Queued${suffix}`, sub: firedSub, ok: null };
+    if (status === "canceled") return { label: "Canceled", sub: firedSub, ok: false };
+    if (status === "running") return { label: "Running", sub: firedSub, ok: null };
+    if (status === "waiting") return { label: "Waiting", sub: firedSub, ok: null };
+    if (status === "new") return { label: "Queued", sub: firedSub, ok: null };
     // Unknown status — surface whatever n8n said, don't fake a verdict.
     return { label: status ?? "Unknown", sub: firedSub, ok: null };
   })();
@@ -213,14 +176,8 @@ export default function Page() {
       }
       setInputText(extracted.text);
       setInputJson(extracted.json);
-      const fixture = upsertFixtureFromExecution(
-        workflow.id,
-        exec.id,
-        `#${exec.id}`,
-        extracted.text,
-        extracted.json,
-      );
-      setSelectedFixtureId(fixture.id);
+      // Loaded from an execution — not a saved payload, so clear selection.
+      setSelectedPayloadId(null);
     },
     [workflow, settings],
   );
@@ -235,16 +192,7 @@ export default function Page() {
       if (!extracted) return;
       setInputText(extracted.text);
       setInputJson(extracted.json);
-      // Auto-save the execution's input as a fixture so it appears in the
-      // sidebar. Deduped by executionId — replays don't pile duplicates.
-      const fixture = upsertFixtureFromExecution(
-        workflow.id,
-        exec.id,
-        `#${exec.id}`,
-        extracted.text,
-        extracted.json,
-      );
-      setSelectedFixtureId(fixture.id);
+      setSelectedPayloadId(null);
     },
     [workflow],
   );
@@ -258,49 +206,24 @@ export default function Page() {
       setRunError("Configure n8n URL and API key in Settings first.");
       return;
     }
-    if (!testMode) {
-      const webhookUrl = findWebhookUrl(workflow, settings.n8nUrl);
-      if (!webhookUrl) {
-        setRunError("This workflow has no Webhook trigger — can't run it from here yet.");
-        return;
-      }
+    const webhookUrl = findWebhookUrl(workflow, settings.n8nUrl);
+    if (!webhookUrl) {
+      setRunError("This workflow has no Webhook trigger — can't run it from here yet.");
+      return;
     }
     setRunError(null);
-    setTestRunNote(null);
     setRunning(true);
     setExecution(null);
     try {
-      let executionId: string | null;
-      if (testMode) {
-        const result = await apiTestRun(settings, {
-          workflowId: workflow.id,
-          payload: inputJson,
-        });
-        executionId = result.executionId;
-        if (result.testWorkflowId) setTestMirrorId(result.testWorkflowId);
-        const subNote =
-          result.subWorkflowMirrorCount > 0
-            ? ` · ${result.subWorkflowMirrorCount} sub-mirror${result.subWorkflowMirrorCount === 1 ? "" : "s"}`
-            : "";
-        setTestRunNote(
-          `Stubbed ${result.stubbedCount} node${result.stubbedCount === 1 ? "" : "s"}` +
-            (result.testWorkflowCreated ? " · created test mirror" : " · reused test mirror") +
-            subNote,
-        );
-      } else {
-        const webhookUrl = findWebhookUrl(workflow, settings.n8nUrl)!;
-        const result = await apiRun(settings, {
-          webhookUrl,
-          payload: inputJson,
-          workflowId: workflow.id,
-        });
-        executionId = result.executionId;
-      }
+      const result = await apiRun(settings, {
+        webhookUrl,
+        payload: inputJson,
+        workflowId: workflow.id,
+      });
+      const executionId = result.executionId;
       if (!executionId) {
         setRunError(
-          testMode
-            ? "Test webhook fired but n8n didn't surface an execution yet. Check the test mirror is active."
-            : "Webhook fired but n8n didn't surface an execution. Check that the workflow is active and records executions.",
+          "Webhook fired but n8n didn't surface an execution. Check that the workflow is active and records executions.",
         );
         return;
       }
@@ -319,16 +242,22 @@ export default function Page() {
     } finally {
       setRunning(false);
     }
-  }, [workflow, settings, inputJson, testMode, applyExecution]);
+  }, [workflow, settings, inputJson, applyExecution]);
 
+  // Loads a workflow + auto-applies its latest execution. Pass an explicit
+  // `creds` to use a connection other than the currently-active one (for
+  // cross-connection picks from the sidebar's "Show all" mode), in which
+  // case the caller is responsible for switching `connections.activeId`
+  // beforehand so subsequent calls use the right creds.
   const onPickWorkflow = useCallback(
-    async (id: string, name: string) => {
+    async (id: string, name: string, creds?: { n8nUrl: string; apiKey: string }) => {
+      const s = creds ?? settings;
       try {
-        const wf = await apiGetWorkflow(settings, id);
+        const wf = await apiGetWorkflow(s, id);
         setWorkflow(wf);
         setModal(null);
         setExecution(null);
-        setSelectedFixtureId(null);
+        setSelectedPayloadId(null);
         setSelectedNodeName(null);
         bumpTestCount(wf.id);
 
@@ -337,23 +266,15 @@ export default function Page() {
         // there are no executions, leave the view empty and stay silent —
         // the user can still load one manually from the executions modal.
         try {
-          const list = await apiListExecutions(settings, wf.id, 1);
+          const list = await apiListExecutions(s, wf.id, 1);
           const latestId = list[0]?.id;
           if (!latestId) return;
-          const exec = await apiGetExecution(settings, latestId);
+          const exec = await apiGetExecution(s, latestId);
           setExecution(exec);
           const extracted = extractTriggerInput(wf, exec);
           if (extracted) {
             setInputText(extracted.text);
             setInputJson(extracted.json);
-            const fixture = upsertFixtureFromExecution(
-              wf.id,
-              exec.id,
-              `#${exec.id}`,
-              extracted.text,
-              extracted.json,
-            );
-            setSelectedFixtureId(fixture.id);
           }
           bumpExecAccess(wf.id, latestId);
         } catch {
@@ -366,6 +287,23 @@ export default function Page() {
     [settings],
   );
 
+  // Cross-connection pick: switch the active connection, then load the
+  // workflow using that connection's creds directly (bypassing state).
+  const onPickFromConnection = useCallback(
+    async (connectionId: string, workflowId: string, workflowName: string) => {
+      const conn = connections.connections.find((c) => c.id === connectionId);
+      if (!conn) return;
+      const next = { ...connections, activeId: connectionId };
+      setConnections(next);
+      writeConnections(next);
+      await onPickWorkflow(workflowId, workflowName, {
+        n8nUrl: conn.n8nUrl,
+        apiKey: conn.apiKey,
+      });
+    },
+    [connections, onPickWorkflow],
+  );
+
   const toggleTheme = () => {
     const next = dark ? "light" : "dark";
     setDark(next === "dark");
@@ -376,24 +314,25 @@ export default function Page() {
     <main className="flex items-stretch min-h-screen">
       <WorkflowSidebar
         settings={settings}
+        connections={connections}
+        onSwitchConnection={(id) => {
+          const next = { ...connections, activeId: id };
+          setConnections(next);
+          writeConnections(next);
+        }}
         currentId={workflow?.id ?? null}
         onPick={onPickWorkflow}
+        onPickFromConnection={onPickFromConnection}
+        dark={dark}
+        onToggleTheme={toggleTheme}
+        statusOverrides={
+          workflow && execution?.status
+            ? { [workflow.id]: execution.status }
+            : undefined
+        }
       />
       <div className="flex-1 min-w-0 flex flex-col bg-[var(--panel)]">
-      <header
-        className={`px-4 py-2 bg-[var(--panel)] border-b border-[var(--border)] flex items-center gap-4 sticky top-0 z-20 ${
-          testMode ? "ring-2 ring-inset ring-[var(--n8n)]/60" : ""
-        }`}
-      >
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <h1 className="m-0 text-[13px] font-semibold whitespace-nowrap">n8n-studio</h1>
-          {testMode && (
-            <span className="text-[9px] font-semibold tracking-[1px] uppercase px-1.5 py-[1px] rounded bg-[var(--n8n)] text-white">
-              Test
-            </span>
-          )}
-        </div>
-
+      <header className="px-4 py-2 bg-[var(--panel)] border-b border-[var(--border)] flex items-center gap-4 sticky top-0 z-20">
         <div className="flex-1 flex items-center justify-center gap-1 min-w-0">
           <CompactNode
             color="blue"
@@ -401,7 +340,7 @@ export default function Page() {
             label={
               inputText
                 ? execution?.startedAt
-                  ? `Execution · ${fmtExecStarted(execution.startedAt)}`
+                  ? `${fmtRelative(execution.startedAt)} | ${fmtExecStarted(execution.startedAt)}`
                   : "Custom JSON input"
                 : "No input loaded"
             }
@@ -444,31 +383,6 @@ export default function Page() {
           />
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <TestModeToggle on={testMode} onChange={setTestMode} />
-          {(() => {
-            const disabled = !workflow || !inputText || running;
-            const tooltip = !workflow && !inputText
-              ? "Load a workflow and paste an input first"
-              : !workflow
-                ? "Load a workflow first"
-                : !inputText
-                  ? "Paste an input first"
-                  : undefined;
-            const label = running ? "Running…" : testMode ? "▶ Run (test)" : "▶ Run";
-            return (
-              <Btn primary onClick={handleRun} disabled={disabled} tooltip={tooltip}>
-                {label}
-              </Btn>
-            );
-          })()}
-          <IconBtn onClick={toggleTheme} title="Toggle dark mode">
-            {dark ? <SunIcon /> : <MoonIcon />}
-          </IconBtn>
-          <IconBtn onClick={() => setModal("settings")} title="Settings">
-            <GearIcon />
-          </IconBtn>
-        </div>
       </header>
 
 
@@ -478,19 +392,15 @@ export default function Page() {
             {runError}
           </div>
         )}
-        {!runError && testRunNote && (
-          <div className="mb-4 text-[12px] text-[var(--muted)] px-3 py-2 rounded border border-[var(--border)] bg-[var(--panel-soft)]">
-            Test run · {testRunNote}
-          </div>
-        )}
         <div className="flex gap-3 items-start">
           {workflow && checks.length > 0 && (
             <>
               <aside
                 id="graph-pane"
-                className="flex-shrink-0 sticky top-[60px] self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2"
+                className="flex-shrink-0 sticky top-[60px] self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2 relative"
                 style={{ width: graphPaneWidth }}
               >
+                {execution && <CopyExecutionButton execution={execution} />}
                 <WorkflowGraph
                   workflow={workflow}
                   checks={checks}
@@ -543,18 +453,6 @@ export default function Page() {
       </section>
       </div>
 
-      <SettingsModal
-        open={modal === "settings"}
-        onClose={() => setModal(null)}
-        initial={settings}
-        workflowId={workflow?.id ?? null}
-        workflowName={workflow?.name ?? null}
-        onSave={(s) => {
-          setSettings(s);
-          writeSettings(s);
-          setModal(null);
-        }}
-      />
       <WorkflowModal
         open={modal === "workflow"}
         onClose={() => setModal(null)}
@@ -565,32 +463,24 @@ export default function Page() {
         open={modal === "input"}
         onClose={() => setModal(null)}
         workflowId={workflow?.id ?? null}
-        testMirrorId={testMirrorId}
         settings={settings}
         initialText={inputText}
-        selectedFixtureId={selectedFixtureId}
+        selectedPayloadId={selectedPayloadId}
+        running={running}
         onChange={(text, parsed) => {
           setInputText(text);
           setInputJson(parsed);
         }}
-        onSelectFixture={setSelectedFixtureId}
+        onSelectPayload={setSelectedPayloadId}
         onLoadFromExecution={loadInputFromExecution}
+        onRun={handleRun}
       />
       <ExecutionsModal
         open={modal === "executions"}
         onClose={() => setModal(null)}
         settings={settings}
-        workflowId={testMode ? testMirrorId : (workflow?.id ?? null)}
-        workflowName={
-          testMode && workflow
-            ? `(test) ${workflow.name}`
-            : (workflow?.name ?? "")
-        }
-        emptyHintWhenMissing={
-          testMode && !testMirrorId
-            ? "No test mirror yet. Run once in test mode to create it."
-            : undefined
-        }
+        workflowId={workflow?.id ?? null}
+        workflowName={workflow?.name ?? ""}
         onPick={async (executionId) => {
           setRunError(null);
           setModal(null);
@@ -607,54 +497,43 @@ export default function Page() {
   );
 }
 
-function IconBtn({
-  children,
-  onClick,
-  title,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  title: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className="w-[34px] h-[34px] border-0 bg-transparent text-[var(--muted)] cursor-pointer rounded-md flex items-center justify-center hover:bg-[var(--bg)] hover:text-[var(--text)]"
-    >
-      {children}
-    </button>
-  );
-}
+function CopyExecutionButton({ execution }: { execution: N8nExecution }) {
+  const [copied, setCopied] = useState(false);
 
-function TestModeToggle({
-  on,
-  onChange,
-}: {
-  on: boolean;
-  onChange: (next: boolean) => void;
-}) {
+  async function handle() {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(execution, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API can fail in non-secure contexts; swallow silently.
+    }
+  }
+
   return (
     <button
       type="button"
-      onClick={() => onChange(!on)}
-      title={
-        on
-          ? "Test mode ON — runs use a stubbed mirror, no real side effects"
-          : "Test mode OFF — runs hit your live workflow"
-      }
-      className={`h-[34px] px-3 text-[12px] font-medium rounded-md border transition-colors cursor-pointer flex items-center gap-2 ${
-        on
-          ? "bg-[var(--n8n)] text-white border-[var(--n8n)]"
-          : "bg-transparent text-[var(--muted)] border-[var(--border-strong)] hover:text-[var(--text)]"
-      }`}
+      onClick={handle}
+      title="Copy execution JSON"
+      aria-label="Copy execution JSON"
+      className="absolute top-2 right-2 z-10 h-7 px-2 text-[11px] font-medium rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--n8n)] flex items-center gap-1.5 cursor-pointer"
     >
-      <span
-        className={`w-2 h-2 rounded-full ${on ? "bg-white" : "bg-[var(--muted-2)]"}`}
-        aria-hidden
-      />
-      Test mode {on ? "on" : "off"}
+      {copied ? (
+        <>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 text-[#059669]">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          <span className="text-[#059669]">Copied</span>
+        </>
+      ) : (
+        <>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+          <span>Copy</span>
+        </>
+      )}
     </button>
   );
 }
@@ -662,9 +541,28 @@ function TestModeToggle({
 function fmtExecStarted(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const date = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
   const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
   return `${date}, ${time}`;
+}
+
+// "3m ago", "2h ago", "5d ago" — collapses to "just now" under 60s and to
+// "Xmo" / "Xy" past a month so the label stays single-token short.
+function fmtRelative(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  const diffSec = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (diffSec < 60) return "just now";
+  const min = Math.round(diffSec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  const mo = Math.round(day / 30);
+  if (mo < 12) return `${mo}mo ago`;
+  const yr = Math.round(mo / 12);
+  return `${yr}y ago`;
 }
 
 function CheckSvg({ small }: { small?: boolean } = {}) {

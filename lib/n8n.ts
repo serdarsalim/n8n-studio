@@ -77,6 +77,7 @@ export async function getExecution(creds: N8nCreds, id: string): Promise<N8nExec
 
 export interface N8nExecutionSummary {
   id: string;
+  workflowId?: string;
   startedAt?: string;
   stoppedAt?: string;
   status?: string;
@@ -86,10 +87,11 @@ export interface N8nExecutionSummary {
 
 export async function listExecutions(
   creds: N8nCreds,
-  workflowId: string,
+  workflowId: string | null,
   limit = 25,
 ): Promise<N8nExecutionSummary[]> {
-  const data = await n8nFetch(creds, `/executions?workflowId=${workflowId}&limit=${limit}`);
+  const wf = workflowId ? `workflowId=${encodeURIComponent(workflowId)}&` : "";
+  const data = await n8nFetch(creds, `/executions?${wf}limit=${limit}`);
   const list = (data?.data ?? data) as N8nExecutionSummary[];
   return list;
 }
@@ -184,12 +186,3 @@ export async function deactivateWorkflow(creds: N8nCreds, id: string): Promise<v
   }
 }
 
-export async function deleteWorkflow(creds: N8nCreds, id: string): Promise<void> {
-  // Deleting an active workflow fails on some n8n versions — deactivate first.
-  try {
-    await deactivateWorkflow(creds, id);
-  } catch {
-    // ignore — already inactive or endpoint missing
-  }
-  await n8nFetch(creds, `/workflows/${id}`, { method: "DELETE" });
-}

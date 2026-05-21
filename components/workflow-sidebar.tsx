@@ -1,53 +1,96 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AppSettings, N8nWorkflowSummary } from "@/lib/types";
-import { apiListWorkflows, readTestCounts } from "@/lib/client";
+import type { AppSettings, Connection, ConnectionsBlob, N8nWorkflowSummary } from "@/lib/types";
+import {
+  apiListRecentExecutions,
+  apiListWorkflows,
+  readPrefs,
+  readTestCounts,
+  type SidebarSort,
+} from "@/lib/client";
+import { GearIcon, MoonIcon, SunIcon } from "@/components/icons";
 
 const COLLAPSED_KEY = "n8n-ft.sidebar.collapsed";
 const ACTIVE_KEY = "n8n-ft.sidebar.activeOnly";
 const SORT_KEY = "n8n-ft.sidebar.sort";
 const WIDTH_KEY = "n8n-ft.sidebar.width";
+const SHOW_ALL_KEY = "n8n-ft.sidebar.showAll";
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 600;
 const DEFAULT_WIDTH = 260;
 
-type Sort = "usage" | "name" | "updated" | "created";
-const SORT_OPTIONS: Array<{ value: Sort; label: string }> = [
+const SORT_OPTIONS: Array<{ value: SidebarSort; label: string }> = [
   { value: "usage", label: "Most used" },
   { value: "name", label: "Name (A→Z)" },
   { value: "updated", label: "Recently edited" },
   { value: "created", label: "Recently created" },
+  { value: "run", label: "Recently run" },
 ];
+
+// Workflow with the connection it came from. In single-instance mode the
+// connection fields are the active one. In show-all mode they vary per row.
+interface TaggedWorkflow extends N8nWorkflowSummary {
+  connectionId: string;
+  connectionName: string;
+}
 
 export function WorkflowSidebar({
   settings,
+  connections,
+  onSwitchConnection,
   currentId,
   onPick,
+  onPickFromConnection,
   refreshTick,
+  dark,
+  onToggleTheme,
+  statusOverrides,
 }: {
   settings: AppSettings;
+  connections: ConnectionsBlob;
+  onSwitchConnection: (id: string) => void;
   currentId: string | null;
   onPick: (id: string, name: string) => void;
+  onPickFromConnection: (connectionId: string, workflowId: string, name: string) => void;
   // Bump to force a workflow-list refresh (e.g. after settings change).
   refreshTick?: number;
+  dark: boolean;
+  onToggleTheme: () => void;
+  // Per-workflow status overrides, used when the page already knows a
+  // status (e.g. the currently-loaded execution) but the recent-executions
+  // batch fetched by the sidebar didn't include that workflow.
+  statusOverrides?: Record<string, string>;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [activeOnly, setActiveOnly] = useState(true);
-  const [sort, setSort] = useState<Sort>("updated");
+  const [sort, setSort] = useState<SidebarSort>("updated");
   const [filter, setFilter] = useState("");
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
   const [dragging, setDragging] = useState(false);
-  const [workflows, setWorkflows] = useState<N8nWorkflowSummary[] | null>(null);
+  const [workflows, setWorkflows] = useState<TaggedWorkflow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const [showAll, setShowAll] = useState(false);
+  // Map keyed by `${connectionId}:${workflowId}` so workflows with colliding
+  // IDs across instances don't shadow each other in show-all mode.
+  const [lastStatus, setLastStatus] = useState<Record<string, string>>({});
+  const [lastRunAt, setLastRunAt] = useState<Record<string, string>>({});
 
   useEffect(() => {
     try {
       setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "1");
       setActiveOnly(localStorage.getItem(ACTIVE_KEY) !== "0");
-      const s = localStorage.getItem(SORT_KEY) as Sort | null;
-      if (s && SORT_OPTIONS.some((o) => o.value === s)) setSort(s);
+      setShowAll(localStorage.getItem(SHOW_ALL_KEY) === "1");
+      const stored = localStorage.getItem(SORT_KEY) as SidebarSort | null;
+      const valid = stored && SORT_OPTIONS.some((o) => o.value === stored);
+      if (valid) {
+        setSort(stored as SidebarSort);
+      } else {
+        // Fall back to the user-configured default from Settings.
+        setSort(readPrefs().sidebarSortDefault);
+      }
       const w = Number(localStorage.getItem(WIDTH_KEY));
       if (Number.isFinite(w) && w >= MIN_WIDTH && w <= MAX_WIDTH) setWidth(w);
     } catch {}
@@ -85,20 +128,135 @@ export function WorkflowSidebar({
     };
   }, [dragging]);
 
+  // Decide which connections to query: just the active one in single mode,
+  // all configured connections in show-all mode. The list is JSON-stringified
+  // for the effect's dependency array — referential identity on the raw
+  // connections object changes on unrelated state edits.
+  const sources: Connection[] = useMemo(() => {
+    if (showAll) return connections.connections.filter((c) => c.n8nUrl && c.apiKey);
+    const active = connections.connections.find((c) => c.id === connections.activeId);
+    return active && active.n8nUrl && active.apiKey ? [active] : [];
+  }, [showAll, connections]);
+
+  const sourcesKey = sources.map((c) => `${c.id}|${c.n8nUrl}`).join(",");
+
+  // Background-refresh trigger. Bumped by the polling interval and by the
+  // manual refresh button. Each bump re-runs the fetch effect below.
+  const [tick, setTick] = useState(0);
+
   useEffect(() => {
     setCounts(readTestCounts());
-    if (!settings.n8nUrl || !settings.apiKey) {
+    if (sources.length === 0) {
       setWorkflows(null);
-      setError("Add n8n URL and API key in Settings.");
+      setLastStatus({});
+      setLastRunAt({});
+      setError(
+        showAll
+          ? "No connections configured. Add one in Settings."
+          : "Add n8n URL and API key in Settings.",
+      );
       return;
     }
-    setLoading(true);
+    let cancelled = false;
+    // Only show the placeholder spinner on the very first load, not on
+    // background-poll refreshes — those should be invisible if nothing changed.
+    if (workflows === null) setLoading(true);
     setError(null);
-    apiListWorkflows(settings)
-      .then((wf) => setWorkflows(wf))
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [settings, refreshTick]);
+    // Fetch workflows from every source in parallel, tagging each row with
+    // the connection it came from. Per-source failures don't sink the whole
+    // load — we surface them only when EVERY source failed.
+    Promise.all(
+      sources.map((c) =>
+        apiListWorkflows({ n8nUrl: c.n8nUrl, apiKey: c.apiKey })
+          .then((wfs) =>
+            wfs.map<TaggedWorkflow>((w) => ({
+              ...w,
+              connectionId: c.id,
+              connectionName: c.name,
+            })),
+          )
+          .catch(() => [] as TaggedWorkflow[]),
+      ),
+    )
+      .then((lists) => {
+        if (cancelled) return;
+        const merged = lists.flat();
+        // Diff-aware: only replace state if the list actually changed.
+        // Prevents React re-renders / row reorder when the poll returns
+        // identical data — which is the common case.
+        setWorkflows((prev) =>
+          prev && jsonEqual(prev, merged) ? prev : merged,
+        );
+        if (merged.length === 0) setError("No workflows returned.");
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    // Recent executions per source — used for both the status dot color and
+    // the "Recently run" sort. Failures are non-fatal (dots just stay grey).
+    Promise.all(
+      sources.map((c) =>
+        apiListRecentExecutions({ n8nUrl: c.n8nUrl, apiKey: c.apiKey }, 250)
+          .then((execs) => ({ connectionId: c.id, execs }))
+          .catch(() => ({ connectionId: c.id, execs: [] })),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      const statusMap: Record<string, string> = {};
+      const runAtMap: Record<string, string> = {};
+      for (const { connectionId, execs } of results) {
+        for (const e of execs) {
+          if (!e.workflowId) continue;
+          const key = `${connectionId}:${e.workflowId}`;
+          if (statusMap[key]) continue; // newest-first
+          if (e.status) statusMap[key] = e.status;
+          if (e.startedAt) runAtMap[key] = e.startedAt;
+        }
+      }
+      setLastStatus((prev) => (jsonEqual(prev, statusMap) ? prev : statusMap));
+      setLastRunAt((prev) => (jsonEqual(prev, runAtMap) ? prev : runAtMap));
+    });
+
+    return () => { cancelled = true; };
+    // sourcesKey captures the connection identity + url changes that matter;
+    // re-deriving `sources` doesn't need to re-trigger when refs change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourcesKey, refreshTick, showAll, tick]);
+
+  // Auto-refresh every 30s, but only while the tab is visible. Pauses on
+  // backgrounded tabs, resumes (with an immediate catch-up tick) on return.
+  useEffect(() => {
+    let intervalId: number | null = null;
+    const start = () => {
+      if (intervalId !== null) return;
+      intervalId = window.setInterval(() => {
+        if (document.visibilityState === "visible") {
+          setTick((n) => n + 1);
+        }
+      }, 30_000);
+    };
+    const stop = () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        setTick((n) => n + 1);
+        start();
+      } else {
+        stop();
+      }
+    };
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  const manualRefresh = () => setTick((n) => n + 1);
 
   // Refresh tested-count badge each time the loaded workflow changes —
   // bumpTestCount fires on pick, and we want the sidebar count to reflect it.
@@ -126,10 +284,48 @@ export function WorkflowSidebar({
           return ts(b.updatedAt) - ts(a.updatedAt);
         case "created":
           return ts(b.createdAt) - ts(a.createdAt);
+        case "run": {
+          const ka = `${a.connectionId}:${a.id}`;
+          const kb = `${b.connectionId}:${b.id}`;
+          const ra = ts(lastRunAt[ka]);
+          const rb = ts(lastRunAt[kb]);
+          if (rb !== ra) return rb - ra;
+          // Workflows that never ran fall to the bottom, sorted by name.
+          return a.name.localeCompare(b.name);
+        }
       }
     });
     return sorted;
-  }, [workflows, filter, activeOnly, sort, counts]);
+  }, [workflows, filter, activeOnly, sort, counts, lastRunAt]);
+
+  // When showing all, group rows under their connection name (preserving
+  // sort within each group). In single mode this is just one flat group.
+  const grouped: Array<{ connectionId: string; connectionName: string; rows: TaggedWorkflow[] }> = useMemo(() => {
+    if (!showAll) {
+      const only = visible[0];
+      return [
+        {
+          connectionId: only?.connectionId ?? "",
+          connectionName: only?.connectionName ?? "",
+          rows: visible,
+        },
+      ];
+    }
+    const order: string[] = [];
+    const map = new Map<string, { connectionId: string; connectionName: string; rows: TaggedWorkflow[] }>();
+    for (const w of visible) {
+      if (!map.has(w.connectionId)) {
+        order.push(w.connectionId);
+        map.set(w.connectionId, {
+          connectionId: w.connectionId,
+          connectionName: w.connectionName,
+          rows: [],
+        });
+      }
+      map.get(w.connectionId)!.rows.push(w);
+    }
+    return order.map((id) => map.get(id)!);
+  }, [visible, showAll]);
 
   const toggle = () => {
     const next = !collapsed;
@@ -147,11 +343,22 @@ export function WorkflowSidebar({
     } catch {}
   };
 
-  const changeSort = (next: Sort) => {
+  const changeSort = (next: SidebarSort) => {
     setSort(next);
     try {
       localStorage.setItem(SORT_KEY, next);
     } catch {}
+  };
+
+  const handleSwitch = (id: string) => {
+    if (id === "__all__") {
+      setShowAll(true);
+      try { localStorage.setItem(SHOW_ALL_KEY, "1"); } catch {}
+    } else {
+      setShowAll(false);
+      try { localStorage.setItem(SHOW_ALL_KEY, "0"); } catch {}
+      onSwitchConnection(id);
+    }
   };
 
   if (collapsed) {
@@ -167,10 +374,29 @@ export function WorkflowSidebar({
           <Chevron dir="right" />
         </button>
         <div
-          className="mt-3 text-[10px] tracking-[2px] text-[var(--muted-2)] font-semibold"
+          className="mt-3 text-[10px] tracking-[2px] font-semibold bg-gradient-to-b from-[var(--n8n)] to-[#7c3aed] bg-clip-text text-transparent"
           style={{ writingMode: "vertical-rl" }}
         >
-          WORKFLOWS
+          n8n STUDIO
+        </div>
+        <div className="mt-auto pb-2 flex flex-col items-center gap-1">
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            title="Toggle dark mode"
+            aria-label="Toggle dark mode"
+            className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)] cursor-pointer"
+          >
+            {dark ? <SunIcon /> : <MoonIcon />}
+          </button>
+          <Link
+            href="/settings"
+            title="Settings"
+            aria-label="Settings"
+            className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)] no-underline"
+          >
+            <GearIcon />
+          </Link>
         </div>
       </aside>
     );
@@ -181,22 +407,12 @@ export function WorkflowSidebar({
       className="flex-shrink-0 border-r border-[var(--border)] bg-[var(--panel-soft)] flex flex-col sticky top-0 self-start h-screen max-h-screen overflow-hidden relative"
       style={{ width }}
     >
-      <div className="px-3 py-2 flex items-center gap-2 border-b border-[var(--border)]">
-        <div className="text-[11px] font-semibold tracking-[1px] uppercase text-[var(--muted)] flex-1">
-          Workflows
+      <div className="pl-5 pr-3 py-2 flex items-center gap-2">
+        <div className="flex-1">
+          <span className="text-[13px] font-semibold tracking-[-0.01em] bg-gradient-to-r from-[var(--n8n)] to-[#7c3aed] bg-clip-text text-transparent">
+            n8n Studio
+          </span>
         </div>
-        <button
-          type="button"
-          onClick={toggleActive}
-          title={activeOnly ? "Showing active only — click to show all" : "Showing all — click to show active only"}
-          className={`text-[10px] font-medium px-1.5 py-[2px] rounded border cursor-pointer ${
-            activeOnly
-              ? "bg-[var(--n8n)] text-white border-[var(--n8n)]"
-              : "bg-transparent text-[var(--muted)] border-[var(--border-strong)]"
-          }`}
-        >
-          {activeOnly ? "active" : "all"}
-        </button>
         <button
           type="button"
           onClick={toggle}
@@ -208,15 +424,39 @@ export function WorkflowSidebar({
         </button>
       </div>
 
+      {connections.connections.length > 0 && (
+        <div className="px-2 pt-2">
+          <ConnectionPicker
+            connections={connections}
+            showAll={showAll}
+            onSwitch={handleSwitch}
+          />
+        </div>
+      )}
+
       <div className="px-2 pt-2 flex items-center gap-1">
         <input
           type="text"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder={loading ? "Loading…" : "Filter…"}
+          placeholder={loading ? "Loading…" : "Search"}
           className="flex-1 min-w-0 px-2 py-1 text-[12px] rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--text)] outline-none focus:border-[var(--n8n)]"
         />
-        <SortMenu value={sort} onChange={changeSort} />
+        <button
+          type="button"
+          onClick={manualRefresh}
+          title="Refresh workflows"
+          aria-label="Refresh workflows"
+          className="w-7 h-7 rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] flex items-center justify-center cursor-pointer flex-shrink-0"
+        >
+          <RefreshIcon spinning={loading} />
+        </button>
+        <SortMenu
+          value={sort}
+          onChange={changeSort}
+          activeOnly={activeOnly}
+          onToggleActive={toggleActive}
+        />
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 pt-2 pb-[50vh] [scrollbar-width:thin] [scrollbar-color:var(--border-strong)_transparent] [&::-webkit-scrollbar]:w-[5px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[var(--border-strong)] [&::-webkit-scrollbar-thumb]:rounded-full">
@@ -225,33 +465,72 @@ export function WorkflowSidebar({
             {error}
           </div>
         )}
-        {!error && visible.map((wf) => {
-          const selected = wf.id === currentId;
-          return (
-            <button
-              key={wf.id}
-              type="button"
-              onClick={() => onPick(wf.id, wf.name)}
-              title={wf.name}
-              className={`w-full text-left flex items-center gap-2 px-2 py-1.5 rounded mb-1 text-[12px] cursor-pointer border ${
-                selected
-                  ? "bg-[color-mix(in_srgb,var(--n8n)_15%,transparent)] border-[var(--n8n)] text-[var(--text)] font-semibold"
-                  : "bg-transparent border-transparent text-[var(--text)] hover:bg-[var(--bg)] hover:border-[var(--border)]"
-              }`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${wf.active ? "bg-[#059669]" : "bg-[var(--muted-2)]"}`}
-                aria-hidden
-              />
-              <span className="flex-1 truncate">{wf.name}</span>
-            </button>
-          );
-        })}
+        {!error && grouped.map((group) => (
+          <div key={group.connectionId || "single"} className="mb-2">
+            {showAll && (
+              <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--muted)]">
+                {group.connectionName}
+              </div>
+            )}
+            {group.rows.map((wf) => {
+              const key = `${wf.connectionId}:${wf.id}`;
+              const selected =
+                wf.id === currentId &&
+                (!showAll || wf.connectionId === connections.activeId);
+              const status = statusOverrides?.[wf.id] ?? lastStatus[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() =>
+                    showAll
+                      ? onPickFromConnection(wf.connectionId, wf.id, wf.name)
+                      : onPick(wf.id, wf.name)
+                  }
+                  title={wf.name}
+                  className={`w-full text-left flex items-center gap-2 px-2 py-1.5 rounded mb-1 text-[12px] cursor-pointer border ${
+                    selected
+                      ? "bg-[color-mix(in_srgb,var(--n8n)_15%,transparent)] border-[var(--n8n)] text-[var(--text)] font-semibold"
+                      : "bg-transparent border-transparent text-[var(--text)] hover:bg-[var(--bg)] hover:border-[var(--border)]"
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotColorClass(status)}`}
+                    aria-hidden
+                    title={dotTitle(status)}
+                  />
+                  <span className="flex-1 truncate select-text">{wf.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
         {!loading && !error && workflows && visible.length === 0 && (
           <div className="text-[11px] text-[var(--muted)] px-2 py-3 text-center">
             No workflows match.
           </div>
         )}
+      </div>
+
+      <div className="flex-shrink-0 border-t border-[var(--border)] pl-2 pr-4 pt-2 pb-4 flex items-center justify-end gap-1 bg-[var(--panel-soft)]">
+        <button
+          type="button"
+          onClick={onToggleTheme}
+          title="Toggle dark mode"
+          aria-label="Toggle dark mode"
+          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)] cursor-pointer"
+        >
+          {dark ? <SunIcon /> : <MoonIcon />}
+        </button>
+        <Link
+          href="/settings"
+          title="Settings"
+          aria-label="Settings"
+          className="flex items-center gap-1.5 px-2 h-7 rounded-md text-[12px] text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)] no-underline"
+        >
+          <GearIcon />
+          <span>Settings</span>
+        </Link>
       </div>
       {/* Resize handle: 4px-wide invisible strip on the right edge.
           Click-and-drag adjusts sidebar width; the surrounding `aside`
@@ -279,16 +558,131 @@ export function WorkflowSidebar({
   );
 }
 
+function dotColorClass(status: string | undefined): string {
+  if (status === "success") return "bg-[#059669]";
+  if (status === "error" || status === "canceled" || status === "crashed") return "bg-[#dc2626]";
+  return "bg-[var(--muted-2)]";
+}
+
+function dotTitle(status: string | undefined): string {
+  if (!status) return "Never run";
+  if (status === "success") return "Last run: succeeded";
+  if (status === "error") return "Last run: errored";
+  if (status === "canceled") return "Last run: canceled";
+  if (status === "running" || status === "waiting" || status === "new") return `Last run: ${status}`;
+  return `Last run: ${status}`;
+}
+
 function ts(d?: string): number {
   return d ? Date.parse(d) || 0 : 0;
+}
+
+function ConnectionPicker({
+  connections,
+  showAll,
+  onSwitch,
+}: {
+  connections: ConnectionsBlob;
+  showAll: boolean;
+  onSwitch: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const active = connections.connections.find((c) => c.id === connections.activeId);
+  const label = showAll
+    ? `Show all (${connections.connections.length})`
+    : (active?.name ?? "No connection");
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title={showAll ? "Showing workflows from every connection" : active ? `Active: ${active.name}` : "No active connection"}
+        className="w-full flex items-center gap-2 px-2 py-1.5 rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[12px] text-[var(--text)] hover:border-[var(--n8n)] cursor-pointer"
+      >
+        <span className="flex-1 truncate text-left">{label}</span>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="w-3 h-3 text-[var(--muted)]"
+          aria-hidden
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute left-0 right-0 top-[36px] bg-[var(--panel)] border border-[var(--border)] rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.15)] z-[200] py-1"
+        >
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={showAll}
+            onClick={() => {
+              onSwitch("__all__");
+              setOpen(false);
+            }}
+            className={`w-full text-left flex items-center gap-2 px-3 py-[6px] text-[12px] cursor-pointer border-0 bg-transparent ${
+              showAll ? "text-[var(--n8n)] font-medium" : "text-[var(--text)]"
+            } hover:bg-[var(--panel-soft)]`}
+          >
+            <span className="w-[12px] text-center">{showAll ? "✓" : ""}</span>
+            <span className="truncate">Show all ({connections.connections.length})</span>
+          </button>
+          <div className="my-1 border-t border-[var(--border)]" />
+          {connections.connections.map((c) => {
+            const selected = !showAll && c.id === connections.activeId;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                onClick={() => {
+                  onSwitch(c.id);
+                  setOpen(false);
+                }}
+                className={`w-full text-left flex items-center gap-2 px-3 py-[6px] text-[12px] cursor-pointer border-0 bg-transparent ${
+                  selected ? "text-[var(--n8n)] font-medium" : "text-[var(--text)]"
+                } hover:bg-[var(--panel-soft)]`}
+              >
+                <span className="w-[12px] text-center">{selected ? "✓" : ""}</span>
+                <span className="truncate">{c.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SortMenu({
   value,
   onChange,
+  activeOnly,
+  onToggleActive,
 }: {
-  value: Sort;
-  onChange: (v: Sort) => void;
+  value: SidebarSort;
+  onChange: (v: SidebarSort) => void;
+  activeOnly: boolean;
+  onToggleActive: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -341,10 +735,48 @@ function SortMenu({
               </button>
             );
           })}
+          <div className="my-1 border-t border-[var(--border)]" />
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={activeOnly}
+            onClick={onToggleActive}
+            className="w-full text-left flex items-center gap-2 px-3 py-[6px] text-[12px] cursor-pointer border-0 bg-transparent text-[var(--text)] hover:bg-[var(--panel-soft)]"
+          >
+            <span className="w-[12px] text-center">{activeOnly ? "✓" : ""}</span>
+            <span>Show active only</span>
+          </button>
         </div>
       )}
     </div>
   );
+}
+
+function RefreshIcon({ spinning }: { spinning?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`}
+      aria-hidden
+    >
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </svg>
+  );
+}
+
+// Cheap deep-equality via JSON stringification. Used to skip React re-renders
+// when a background poll returns identical data — workflows list has at most
+// a few hundred small objects, so this is microseconds and avoids the cost
+// of a per-field comparison.
+function jsonEqual<T>(a: T, b: T): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function SortIcon() {

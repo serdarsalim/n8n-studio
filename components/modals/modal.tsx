@@ -83,6 +83,10 @@ export function Modal({
         className="mx-auto bg-[var(--panel)] rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.25)] overflow-hidden max-w-[calc(100vw-40px)] flex flex-col resize"
         style={{
           width: wide ? 920 : 560,
+          // Wide modals get a fixed starting height so lists inside scroll
+          // rather than the modal growing with content. Users can still
+          // drag the bottom-right corner (CSS `resize`) to enlarge.
+          height: wide ? 560 : undefined,
           minWidth: 480,
           minHeight: 320,
           maxHeight: "calc(100vh - 80px)",

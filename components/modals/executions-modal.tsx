@@ -59,7 +59,6 @@ export function ExecutionsModal({
   settings,
   workflowId,
   workflowName,
-  emptyHintWhenMissing,
   onPick,
 }: {
   open: boolean;
@@ -67,7 +66,6 @@ export function ExecutionsModal({
   settings: AppSettings;
   workflowId: string | null;
   workflowName: string;
-  emptyHintWhenMissing?: string;
   onPick: (executionId: string) => void;
 }) {
   const [loading, setLoading] = useState(false);
@@ -97,7 +95,7 @@ export function ExecutionsModal({
     if (!open) return;
     if (!workflowId) {
       setItems([]);
-      setError(emptyHintWhenMissing ?? "Load a workflow first.");
+      setError("Load a workflow first.");
       return;
     }
     if (!settings.n8nUrl || !settings.apiKey) {
@@ -111,7 +109,7 @@ export function ExecutionsModal({
       .then(setItems)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [open, settings, workflowId, emptyHintWhenMissing]);
+  }, [open, settings, workflowId]);
 
   return (
     <Modal open={open} onClose={onClose} title={`Past executions · ${workflowName || "—"}`} wide>

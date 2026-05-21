@@ -94,3 +94,15 @@ export interface AppSettings {
   n8nUrl: string;
   apiKey: string;
 }
+
+export interface Connection {
+  id: string;
+  name: string;
+  n8nUrl: string;
+  apiKey: string;
+}
+
+export interface ConnectionsBlob {
+  connections: Connection[];
+  activeId: string | null;
+}

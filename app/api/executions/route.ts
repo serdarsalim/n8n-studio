@@ -9,7 +9,6 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const workflowId = searchParams.get("workflowId");
   const limit = Number(searchParams.get("limit") ?? "25");
-  if (!workflowId) return NextResponse.json({ error: "workflowId required" }, { status: 400 });
   try {
     const executions = await listExecutions(creds, workflowId, limit);
     return NextResponse.json({ executions });

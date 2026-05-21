@@ -2,63 +2,75 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   apiListExecutions,
-  createFixture,
-  deleteFixture,
+  createTestPayload,
+  deleteTestPayload,
   type ExecutionSummary,
-  type Fixture,
-  readFixtures,
-  updateFixture,
+  type TestPayload,
+  readTestPayloads,
+  updateTestPayload,
 } from "@/lib/client";
 import type { AppSettings } from "@/lib/types";
-import { Modal } from "./modal";
+import { Btn, Modal } from "./modal";
+
+type Tab = "runs" | "payloads";
+const TAB_KEY = "n8n-ft.inputModal.tab";
 
 export function InputModal({
   open,
   onClose,
   workflowId,
-  testMirrorId,
   settings,
   initialText,
-  selectedFixtureId,
+  selectedPayloadId,
+  running,
   onChange,
-  onSelectFixture,
+  onSelectPayload,
   onLoadFromExecution,
+  onRun,
 }: {
   open: boolean;
   onClose: () => void;
   workflowId: string | null;
-  testMirrorId: string | null;
   settings: AppSettings;
   initialText: string;
-  selectedFixtureId: string | null;
+  selectedPayloadId: string | null;
+  running: boolean;
   onChange: (text: string, parsed: unknown) => void;
-  onSelectFixture: (id: string | null) => void;
+  onSelectPayload: (id: string | null) => void;
   onLoadFromExecution: (executionId: string) => Promise<void>;
+  onRun: () => void;
 }) {
-  const [fixtures, setFixtures] = useState<Fixture[]>([]);
+  const [payloads, setPayloads] = useState<TestPayload[]>([]);
   const [text, setText] = useState(initialText);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("runs");
 
-  // Hydrate on open. We re-read fixtures every time to catch any auto-
-  // saves that happened while the modal was closed (e.g. loading a past
-  // execution from the canvas).
   useEffect(() => {
     if (!open) return;
     setText(initialText);
     setError(null);
-    if (workflowId) setFixtures(readFixtures(workflowId));
-    else setFixtures([]);
+    if (workflowId) setPayloads(readTestPayloads(workflowId));
+    else setPayloads([]);
+    try {
+      const saved = localStorage.getItem(TAB_KEY) as Tab | null;
+      if (saved === "runs" || saved === "payloads") setTab(saved);
+    } catch {}
   }, [open, initialText, workflowId]);
 
-  const selectedFixture = useMemo(
-    () => fixtures.find((f) => f.id === selectedFixtureId) ?? null,
-    [fixtures, selectedFixtureId],
+  const selectedPayload = useMemo(
+    () => payloads.find((p) => p.id === selectedPayloadId) ?? null,
+    [payloads, selectedPayloadId],
   );
-  const isDirty = selectedFixture ? selectedFixture.text !== text : false;
+  const isDirty = selectedPayload ? selectedPayload.text !== text : false;
 
-  function refreshFixtures() {
+  function refreshPayloads() {
     if (!workflowId) return;
-    setFixtures(readFixtures(workflowId));
+    setPayloads(readTestPayloads(workflowId));
+  }
+
+  function changeTab(next: Tab) {
+    setTab(next);
+    try { localStorage.setItem(TAB_KEY, next); } catch {}
   }
 
   function handleTextChange(next: string) {
@@ -72,104 +84,117 @@ export function InputModal({
     }
   }
 
-  function handleSelect(id: string) {
-    const f = fixtures.find((x) => x.id === id);
-    if (!f) return;
-    setText(f.text);
+  function handleSelectPayload(id: string) {
+    const p = payloads.find((x) => x.id === id);
+    if (!p) return;
+    setText(p.text);
     setError(null);
-    onSelectFixture(id);
-    onChange(f.text, f.json);
+    onSelectPayload(id);
+    onChange(p.text, p.json);
   }
 
-  function handleNew() {
+  function handleNewPayload() {
     if (!workflowId) return;
-    const name = uniqueName("New fixture", fixtures);
+    const name = uniqueName("New payload", payloads);
     let parsed: unknown = {};
     try {
       parsed = text.trim() ? JSON.parse(text) : {};
     } catch {
-      // can't parse the current editor — start fresh with {}
       parsed = {};
     }
-    const fixture = createFixture(workflowId, name, text, parsed);
-    setFixtures([...fixtures, fixture]);
-    onSelectFixture(fixture.id);
+    const payload = createTestPayload(workflowId, name, text, parsed);
+    setPayloads([...payloads, payload]);
+    onSelectPayload(payload.id);
+    changeTab("payloads");
   }
 
-  function handleUpdate() {
-    if (!workflowId || !selectedFixture || error) return;
+  function handleUpdatePayload() {
+    if (!workflowId || !selectedPayload || error) return;
     let parsed: unknown;
     try {
       parsed = text.trim() ? JSON.parse(text) : {};
     } catch {
       return;
     }
-    updateFixture(workflowId, selectedFixture.id, { text, json: parsed });
-    refreshFixtures();
+    updateTestPayload(workflowId, selectedPayload.id, { text, json: parsed });
+    refreshPayloads();
   }
 
-  function handleRename(id: string, name: string) {
+  function handleRenamePayload(id: string, name: string) {
     if (!workflowId) return;
     const trimmed = name.trim();
     if (!trimmed) return;
-    updateFixture(workflowId, id, { name: trimmed });
-    refreshFixtures();
+    updateTestPayload(workflowId, id, { name: trimmed });
+    refreshPayloads();
   }
 
-  function handleDelete(id: string) {
+  function handleDeletePayload(id: string) {
     if (!workflowId) return;
-    deleteFixture(workflowId, id);
-    if (selectedFixtureId === id) onSelectFixture(null);
-    refreshFixtures();
+    deleteTestPayload(workflowId, id);
+    if (selectedPayloadId === id) onSelectPayload(null);
+    refreshPayloads();
   }
 
   return (
     <Modal open={open} onClose={onClose} title="Input" wide>
-      <div className="flex gap-3 h-full min-h-[360px]">
+      <div className="flex gap-3 h-full min-h-0">
         <aside className="w-[300px] flex-shrink-0 flex flex-col border border-[var(--border)] rounded-md bg-[var(--panel-soft)] overflow-hidden">
-          <RecentExecutionsSection
-            workflowId={workflowId}
-            testMirrorId={testMirrorId}
-            settings={settings}
-            onPick={async (id) => {
-              await onLoadFromExecution(id);
-              refreshFixtures();
-            }}
-          />
-          <button
-            type="button"
-            onClick={handleNew}
-            disabled={!workflowId}
-            className="text-left text-[12px] text-[var(--blue)] hover:text-[var(--text)] px-3 py-2 border-b border-t border-[var(--border)] bg-transparent border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            + New fixture
-          </button>
-          <div className="overflow-y-auto flex-1">
-            {fixtures.length === 0 && (
-              <div className="text-[11px] text-[var(--muted-2)] px-3 py-3 italic">
-                No saved fixtures yet. Paste JSON on the right and hit + New.
-              </div>
-            )}
-            {fixtures.map((f) => (
-              <FixtureRow
-                key={f.id}
-                fixture={f}
-                selected={f.id === selectedFixtureId}
-                dirty={f.id === selectedFixtureId && isDirty}
-                onSelect={() => handleSelect(f.id)}
-                onRename={(name) => handleRename(f.id, name)}
-                onDelete={() => handleDelete(f.id)}
-              />
-            ))}
+          <div className="flex border-b border-[var(--border)]">
+            <TabButton active={tab === "runs"} onClick={() => changeTab("runs")}>
+              Recent runs
+            </TabButton>
+            <TabButton active={tab === "payloads"} onClick={() => changeTab("payloads")}>
+              Test payloads
+            </TabButton>
           </div>
-          {selectedFixture && isDirty && !error && (
-            <button
-              type="button"
-              onClick={handleUpdate}
-              className="text-left text-[12px] text-[var(--blue)] hover:text-[var(--text)] px-3 py-2 border-t border-[var(--border)] bg-transparent border-0 cursor-pointer"
-            >
-              ↑ Update “{selectedFixture.name}”
-            </button>
+
+          {tab === "runs" && (
+            <RecentRunsList
+              workflowId={workflowId}
+              settings={settings}
+              onPick={onLoadFromExecution}
+            />
+          )}
+
+          {tab === "payloads" && (
+            <>
+              <button
+                type="button"
+                onClick={handleNewPayload}
+                disabled={!workflowId}
+                className="text-left text-[12px] text-[var(--blue)] hover:text-[var(--text)] px-3 py-2 border-b border-[var(--border)] bg-transparent border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                + New payload (from current editor)
+              </button>
+              <div className="overflow-y-auto flex-1 [scrollbar-width:thin] [scrollbar-color:var(--border-strong)_transparent] [&::-webkit-scrollbar]:w-[5px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[var(--border-strong)] [&::-webkit-scrollbar-thumb]:rounded-full">
+                {payloads.length === 0 && (
+                  <div className="text-[11px] text-[var(--muted-2)] px-3 py-3 italic leading-relaxed">
+                    No test payloads yet. Paste JSON on the right and hit
+                    + New payload to save scenarios you want to test.
+                  </div>
+                )}
+                {payloads.map((p) => (
+                  <PayloadRow
+                    key={p.id}
+                    payload={p}
+                    selected={p.id === selectedPayloadId}
+                    dirty={p.id === selectedPayloadId && isDirty}
+                    onSelect={() => handleSelectPayload(p.id)}
+                    onRename={(name) => handleRenamePayload(p.id, name)}
+                    onDelete={() => handleDeletePayload(p.id)}
+                  />
+                ))}
+              </div>
+              {selectedPayload && isDirty && !error && (
+                <button
+                  type="button"
+                  onClick={handleUpdatePayload}
+                  className="text-left text-[12px] text-[var(--blue)] hover:text-[var(--text)] px-3 py-2 border-t border-[var(--border)] bg-transparent border-0 cursor-pointer"
+                >
+                  ↑ Update “{selectedPayload.name}”
+                </button>
+              )}
+            </>
           )}
         </aside>
 
@@ -184,30 +209,75 @@ export function InputModal({
             <div className="text-[12px] text-[var(--red-text)] mt-2 font-mono">
               {error} · last valid version still applied
             </div>
-          ) : (
+          ) : selectedPayload && isDirty ? (
             <div className="text-[11px] text-[var(--muted-2)] mt-2">
-              {selectedFixture
-                ? isDirty
-                  ? `Editing “${selectedFixture.name}” (unsaved changes — applied live)`
-                  : `Loaded: ${selectedFixture.name}`
-                : "Current input (not saved as a fixture)"}
+              Editing “{selectedPayload.name}” (unsaved — applied live)
             </div>
-          )}
+          ) : null}
+          <div className="mt-3 flex justify-end">
+            {(() => {
+              const disabled = !workflowId || !text.trim() || running || !!error;
+              const tooltip = !workflowId
+                ? "Load a workflow first"
+                : !text.trim()
+                  ? "Paste a payload first"
+                  : error
+                    ? "Fix the JSON error first"
+                    : undefined;
+              return (
+                <Btn
+                  primary
+                  onClick={() => {
+                    onClose();
+                    onRun();
+                  }}
+                  disabled={disabled}
+                  tooltip={tooltip}
+                >
+                  {running ? "Running…" : "▶ Run this payload"}
+                </Btn>
+              );
+            })()}
+          </div>
         </div>
       </div>
     </Modal>
   );
 }
 
-function FixtureRow({
-  fixture,
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex-1 px-3 py-2 text-[12px] font-medium cursor-pointer bg-transparent border-0 border-b-2 ${
+        active
+          ? "text-[var(--text)] border-[var(--n8n)]"
+          : "text-[var(--muted)] border-transparent hover:text-[var(--text)]"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function PayloadRow({
+  payload,
   selected,
   dirty,
   onSelect,
   onRename,
   onDelete,
 }: {
-  fixture: Fixture;
+  payload: TestPayload;
   selected: boolean;
   dirty: boolean;
   onSelect: () => void;
@@ -215,19 +285,19 @@ function FixtureRow({
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(fixture.name);
+  const [draft, setDraft] = useState(payload.name);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editing) {
-      setDraft(fixture.name);
+      setDraft(payload.name);
       requestAnimationFrame(() => inputRef.current?.select());
     }
-  }, [editing, fixture.name]);
+  }, [editing, payload.name]);
 
   function commit() {
     setEditing(false);
-    if (draft.trim() && draft.trim() !== fixture.name) onRename(draft.trim());
+    if (draft.trim() && draft.trim() !== payload.name) onRename(draft.trim());
   }
 
   return (
@@ -258,7 +328,7 @@ function FixtureRow({
               commit();
             } else if (e.key === "Escape") {
               e.preventDefault();
-              setDraft(fixture.name);
+              setDraft(payload.name);
               setEditing(false);
             }
           }}
@@ -270,34 +340,25 @@ function FixtureRow({
           type="button"
           onClick={(e) => {
             if (selected) {
-              // Second click on a selected row enters rename mode.
               e.stopPropagation();
               setEditing(true);
             }
           }}
           className="flex-1 min-w-0 text-left truncate bg-transparent border-0 p-0 cursor-pointer font-medium text-[var(--text)]"
-          title={fixture.name}
+          title={payload.name}
         >
-          {fixture.name}
+          {payload.name}
           {dirty && <span className="ml-1 text-[var(--muted)] italic">(dirty)</span>}
         </button>
-      )}
-      {fixture.source === "execution" && (
-        <span
-          className="text-[9px] uppercase tracking-[0.3px] text-[var(--muted-2)] flex-shrink-0"
-          title="Sourced from a past execution"
-        >
-          exec
-        </span>
       )}
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          if (confirm(`Delete fixture “${fixture.name}”?`)) onDelete();
+          if (confirm(`Delete payload “${payload.name}”?`)) onDelete();
         }}
-        title="Delete fixture"
-        aria-label="Delete fixture"
+        title="Delete payload"
+        aria-label="Delete payload"
         className="opacity-0 group-hover:opacity-100 text-[var(--muted)] hover:text-[var(--red)] bg-transparent border-0 p-0 cursor-pointer text-[14px] leading-none w-[14px] h-[14px] flex items-center justify-center"
       >
         ×
@@ -306,36 +367,31 @@ function FixtureRow({
   );
 }
 
-function uniqueName(base: string, fixtures: Fixture[]): string {
-  const names = new Set(fixtures.map((f) => f.name));
+function uniqueName(base: string, payloads: TestPayload[]): string {
+  const names = new Set(payloads.map((p) => p.name));
   if (!names.has(base)) return base;
   let n = 2;
   while (names.has(`${base} ${n}`)) n++;
   return `${base} ${n}`;
 }
 
-function RecentExecutionsSection({
+function RecentRunsList({
   workflowId,
-  testMirrorId,
   settings,
   onPick,
 }: {
   workflowId: string | null;
-  testMirrorId: string | null;
   settings: AppSettings;
   onPick: (executionId: string) => Promise<void>;
 }) {
-  const [scope, setScope] = useState<"live" | "test">("live");
   const [items, setItems] = useState<ExecutionSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
   const [lastLoadedId, setLastLoadedId] = useState<string | null>(null);
 
-  const activeId = scope === "live" ? workflowId : testMirrorId;
-
   useEffect(() => {
-    if (!activeId || !settings.n8nUrl || !settings.apiKey) {
+    if (!workflowId || !settings.n8nUrl || !settings.apiKey) {
       setItems(null);
       setError(null);
       return;
@@ -343,116 +399,79 @@ function RecentExecutionsSection({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    apiListExecutions(settings, activeId, 10)
+    apiListExecutions(settings, workflowId, 25)
       .then((list) => { if (!cancelled) setItems(list); })
       .catch((e) => { if (!cancelled) setError((e as Error).message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [activeId, settings.n8nUrl, settings.apiKey]);
+  }, [workflowId, settings.n8nUrl, settings.apiKey]);
 
+  if (!workflowId) {
+    return (
+      <div className="text-[11px] text-[var(--muted-2)] px-3 py-3 italic">
+        Load a workflow first.
+      </div>
+    );
+  }
+  if (loading) {
+    return (
+      <div className="text-[11px] text-[var(--muted-2)] px-3 py-3 italic">Loading…</div>
+    );
+  }
+  if (error) {
+    return <div className="text-[11px] text-[var(--red-text)] px-3 py-3">{error}</div>;
+  }
+  if (items && items.length === 0) {
+    return (
+      <div className="text-[11px] text-[var(--muted-2)] px-3 py-3 italic">
+        No executions yet.
+      </div>
+    );
+  }
   return (
-    <div className="border-b border-[var(--border)]">
-      <div className="flex items-center justify-between px-3 py-[6px]">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--muted)]">
-          Recent executions
-        </span>
-        <div className="inline-flex rounded border border-[var(--border)] overflow-hidden">
-          <SegBtn active={scope === "live"} onClick={() => setScope("live")}>Live</SegBtn>
-          <SegBtn active={scope === "test"} onClick={() => setScope("test")}>Test</SegBtn>
-        </div>
-      </div>
-      <div className="max-h-[140px] overflow-y-auto">
-        {!activeId && scope === "test" && (
-          <div className="text-[11px] text-[var(--muted-2)] px-3 pb-3 italic">
-            No test mirror yet. Run once in test mode to create it.
-          </div>
-        )}
-        {!activeId && scope === "live" && (
-          <div className="text-[11px] text-[var(--muted-2)] px-3 pb-3 italic">
-            Load a workflow first.
-          </div>
-        )}
-        {activeId && loading && (
-          <div className="text-[11px] text-[var(--muted-2)] px-3 pb-3 italic">Loading…</div>
-        )}
-        {activeId && !loading && error && (
-          <div className="text-[11px] text-[var(--red-text)] px-3 pb-3">{error}</div>
-        )}
-        {activeId && !loading && !error && items && items.length === 0 && (
-          <div className="text-[11px] text-[var(--muted-2)] px-3 pb-3 italic">
-            No {scope} executions yet.
-          </div>
-        )}
-        {activeId && !loading && !error && items && items.length > 0 && (
-          <div className="pb-1">
-            {items.map((e) => (
-              <button
-                key={e.id}
-                type="button"
-                disabled={picking !== null}
-                onClick={async () => {
-                  setError(null);
-                  setPicking(e.id);
-                  try {
-                    await onPick(e.id);
-                    setLastLoadedId(e.id);
-                  } catch (err) {
-                    setError((err as Error).message);
-                  } finally {
-                    setPicking(null);
-                  }
-                }}
-                className={`group w-full flex items-center gap-2 px-3 py-[5px] text-[11px] text-left border-0 cursor-pointer disabled:opacity-50 disabled:cursor-default border-l-2 ${
-                  lastLoadedId === e.id
-                    ? "bg-[var(--selected-bg)] border-[var(--selected-border)]"
-                    : "bg-transparent border-transparent hover:bg-[var(--panel-soft-2)]"
-                }`}
-                title={`Load input from #${e.id}`}
-              >
-                <StatusDot status={e.status} />
-                <span className="font-mono text-[var(--text)]">#{e.id}</span>
-                <span className="text-[var(--muted-2)] truncate flex-1">
-                  {fmtExecRow(e)}
-                </span>
-                {picking === e.id ? (
-                  <span className="text-[var(--muted)] italic">loading…</span>
-                ) : lastLoadedId === e.id ? (
-                  <span className="text-[var(--selected-border)] text-[10px] font-semibold uppercase tracking-[0.3px]">
-                    loaded
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+    <div className="overflow-y-auto flex-1 [scrollbar-width:thin] [scrollbar-color:var(--border-strong)_transparent] [&::-webkit-scrollbar]:w-[5px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[var(--border-strong)] [&::-webkit-scrollbar-thumb]:rounded-full py-1">
+      {items?.map((e) => (
+        <button
+          key={e.id}
+          type="button"
+          disabled={picking !== null}
+          onClick={async () => {
+            setError(null);
+            setPicking(e.id);
+            try {
+              await onPick(e.id);
+              setLastLoadedId(e.id);
+            } catch (err) {
+              setError((err as Error).message);
+            } finally {
+              setPicking(null);
+            }
+          }}
+          className={`group w-full flex items-center gap-2 px-3 py-[5px] text-[11px] text-left border-0 cursor-pointer disabled:opacity-50 disabled:cursor-default border-l-2 ${
+            lastLoadedId === e.id
+              ? "bg-[var(--selected-bg)] border-[var(--selected-border)]"
+              : "bg-transparent border-transparent hover:bg-[var(--panel-soft-2)]"
+          }`}
+          title={`Load input from #${e.id}`}
+        >
+          <StatusDot status={e.status} />
+          <span className="font-mono text-[var(--text)]">#{e.id}</span>
+          <span className="text-[var(--muted-2)] truncate flex-1">
+            {fmtExecRow(e)}
+          </span>
+          {picking === e.id ? (
+            <span className="text-[var(--muted)] italic">loading…</span>
+          ) : lastLoadedId === e.id ? (
+            <span className="text-[var(--selected-border)] text-[10px] font-semibold uppercase tracking-[0.3px]">
+              loaded
+            </span>
+          ) : null}
+        </button>
+      ))}
     </div>
   );
 }
 
-function SegBtn({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`text-[10px] uppercase tracking-[0.3px] px-[6px] py-[1px] cursor-pointer border-0 ${
-        active
-          ? "bg-[var(--panel-soft-2)] text-[var(--text)] font-semibold"
-          : "bg-transparent text-[var(--muted)] hover:text-[var(--text)]"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
 
 function StatusDot({ status }: { status?: string }) {
   const color =

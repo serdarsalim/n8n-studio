@@ -93,13 +93,11 @@ v2 makes the tool a real regression suite. v1 is just a viewer.
 
 ---
 
-## v3a: auto-stub test mode (next ship)
+## v3a: auto-stub test mode — abandoned
 
-**Status: designed, not implemented. Full implementation spec in [`docs/v3a-test-mode.md`](docs/v3a-test-mode.md).**
+We built this (transform write nodes to Set stubs, push as `(test) ...` mirror, fire its test webhook) and ripped it out. Fake-shaped stub data doesn't match real API responses closely enough to exercise downstream branching faithfully — you get green test runs and red production runs. It also tests a different workflow than what ships, which builds false confidence in exactly the surface area (auth, field mapping, error branches) where workflows actually break.
 
-The "what would today's workflow do with this old input?" use case, without instrumenting the workflow or building a full simulator. We transform the workflow JSON (replace write nodes with Set stubs, keep reads/logic real), push as a parallel `(test) ...` workflow to n8n, fire its test webhook, and render the result the same way the existing run flow does.
-
-Trades pure simulation purity for shipping speed (~1–2 days vs ~1+ week for v3) and reuses n8n's actual engine. v3-true-simulator stays on the roadmap if auto-stub limitations bite.
+The better answer is sandbox credentials per environment (use the multi-connection picker to swap between prod/dev n8n instances pointed at sandbox accounts). The fixture system + past-execution replay covers "rerun this input against today's workflow" without a parallel workflow at all.
 
 ## v3: local simulation (the moat)
 
