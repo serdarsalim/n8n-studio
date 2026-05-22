@@ -1,14 +1,9 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AppSettings, Connection, ConnectionsBlob, N8nWorkflowSummary } from "@/lib/types";
-import {
-  apiListRecentExecutions,
-  apiListWorkflows,
-  readPrefs,
-  readTestCounts,
-  type SidebarSort,
-} from "@/lib/client";
+import type { AppSettings, ConnectionsBlob } from "@/lib/types";
+import { readPrefs, readTestCounts, type SidebarSort } from "@/lib/client";
+import type { RefreshResult, TaggedWorkflow } from "@/lib/use-n8n-poller";
 import { GearIcon, MoonIcon, SunIcon } from "@/components/icons";
 
 const COLLAPSED_KEY = "n8n-ft.sidebar.collapsed";
@@ -28,13 +23,6 @@ const SORT_OPTIONS: Array<{ value: SidebarSort; label: string }> = [
   { value: "run", label: "Recently run" },
 ];
 
-// Workflow with the connection it came from. In single-instance mode the
-// connection fields are the active one. In show-all mode they vary per row.
-interface TaggedWorkflow extends N8nWorkflowSummary {
-  connectionId: string;
-  connectionName: string;
-}
-
 export function WorkflowSidebar({
   settings,
   connections,
@@ -42,10 +30,16 @@ export function WorkflowSidebar({
   currentId,
   onPick,
   onPickFromConnection,
-  refreshTick,
   dark,
   onToggleTheme,
   statusOverrides,
+  workflows,
+  lastStatus,
+  lastRunAt,
+  loading,
+  refreshing,
+  error,
+  onRefresh,
 }: {
   settings: AppSettings;
   connections: ConnectionsBlob;
@@ -53,14 +47,20 @@ export function WorkflowSidebar({
   currentId: string | null;
   onPick: (id: string, name: string) => void;
   onPickFromConnection: (connectionId: string, workflowId: string, name: string) => void;
-  // Bump to force a workflow-list refresh (e.g. after settings change).
-  refreshTick?: number;
   dark: boolean;
   onToggleTheme: () => void;
   // Per-workflow status overrides, used when the page already knows a
   // status (e.g. the currently-loaded execution) but the recent-executions
-  // batch fetched by the sidebar didn't include that workflow.
+  // batch didn't include that workflow.
   statusOverrides?: Record<string, string>;
+  // Data from the shared poller (lives in app/page.tsx).
+  workflows: TaggedWorkflow[] | null;
+  lastStatus: Record<string, string>;
+  lastRunAt: Record<string, string>;
+  loading: boolean;
+  refreshing: boolean;
+  error: string | null;
+  onRefresh: () => Promise<RefreshResult>;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [activeOnly, setActiveOnly] = useState(true);
@@ -68,15 +68,9 @@ export function WorkflowSidebar({
   const [filter, setFilter] = useState("");
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
   const [dragging, setDragging] = useState(false);
-  const [workflows, setWorkflows] = useState<TaggedWorkflow[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [showAll, setShowAll] = useState(false);
-  // Map keyed by `${connectionId}:${workflowId}` so workflows with colliding
-  // IDs across instances don't shadow each other in show-all mode.
-  const [lastStatus, setLastStatus] = useState<Record<string, string>>({});
-  const [lastRunAt, setLastRunAt] = useState<Record<string, string>>({});
+  const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   useEffect(() => {
     try {
@@ -128,123 +122,6 @@ export function WorkflowSidebar({
     };
   }, [dragging]);
 
-  // Decide which connections to query: just the active one in single mode,
-  // all configured connections in show-all mode. The list is JSON-stringified
-  // for the effect's dependency array — referential identity on the raw
-  // connections object changes on unrelated state edits.
-  const sources: Connection[] = useMemo(() => {
-    if (showAll) return connections.connections.filter((c) => c.n8nUrl && c.apiKey);
-    const active = connections.connections.find((c) => c.id === connections.activeId);
-    return active && active.n8nUrl && active.apiKey ? [active] : [];
-  }, [showAll, connections]);
-
-  const sourcesKey = sources.map((c) => `${c.id}|${c.n8nUrl}`).join(",");
-
-  // Refresh trigger. Bumped by the polling interval and by the manual
-  // refresh button. `manual` flag controls whether the user sees a spinner
-  // and a status toast (we want background polls to be silent).
-  const [tick, setTick] = useState<{ n: number; manual: boolean }>({ n: 0, manual: false });
-  const [refreshing, setRefreshing] = useState(false);
-  const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
-
-  useEffect(() => {
-    setCounts(readTestCounts());
-    if (sources.length === 0) {
-      setWorkflows(null);
-      setLastStatus({});
-      setLastRunAt({});
-      setError(
-        showAll
-          ? "No connections configured. Add one in Settings."
-          : "Add n8n URL and API key in Settings.",
-      );
-      return;
-    }
-    let cancelled = false;
-    // Show the placeholder spinner on the very first load, the refresh-icon
-    // spinner on manual refreshes, and nothing on silent background polls.
-    if (workflows === null) setLoading(true);
-    if (tick.manual) setRefreshing(true);
-    setError(null);
-    let workflowsChanged = false;
-    let workflowsCount = 0;
-    let workflowsFailed = false;
-    const wfPromise = Promise.all(
-      sources.map((c) =>
-        apiListWorkflows({ n8nUrl: c.n8nUrl, apiKey: c.apiKey })
-          .then((wfs) =>
-            wfs.map<TaggedWorkflow>((w) => ({
-              ...w,
-              connectionId: c.id,
-              connectionName: c.name,
-            })),
-          )
-          .catch(() => {
-            workflowsFailed = true;
-            return [] as TaggedWorkflow[];
-          }),
-      ),
-    )
-      .then((lists) => {
-        if (cancelled) return;
-        const merged = lists.flat();
-        workflowsCount = merged.length;
-        setWorkflows((prev) => {
-          if (prev && jsonEqual(prev, merged)) return prev;
-          workflowsChanged = true;
-          return merged;
-        });
-        if (merged.length === 0 && !tick.manual) setError("No workflows returned.");
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-
-    const execPromise = Promise.all(
-      sources.map((c) =>
-        apiListRecentExecutions({ n8nUrl: c.n8nUrl, apiKey: c.apiKey }, 250)
-          .then((execs) => ({ connectionId: c.id, execs }))
-          .catch(() => ({ connectionId: c.id, execs: [] })),
-      ),
-    ).then((results) => {
-      if (cancelled) return;
-      const statusMap: Record<string, string> = {};
-      const runAtMap: Record<string, string> = {};
-      for (const { connectionId, execs } of results) {
-        for (const e of execs) {
-          if (!e.workflowId) continue;
-          const key = `${connectionId}:${e.workflowId}`;
-          if (statusMap[key]) continue; // newest-first
-          if (e.status) statusMap[key] = e.status;
-          if (e.startedAt) runAtMap[key] = e.startedAt;
-        }
-      }
-      setLastStatus((prev) => (jsonEqual(prev, statusMap) ? prev : statusMap));
-      setLastRunAt((prev) => (jsonEqual(prev, runAtMap) ? prev : runAtMap));
-    });
-
-    if (tick.manual) {
-      Promise.all([wfPromise, execPromise]).then(() => {
-        if (cancelled) return;
-        setRefreshing(false);
-        if (workflowsFailed) {
-          setToast({ kind: "err", text: "Couldn't reach n8n" });
-        } else {
-          const noun = workflowsCount === 1 ? "workflow" : "workflows";
-          setToast({
-            kind: "ok",
-            text: workflowsChanged
-              ? `Refreshed · ${workflowsCount} ${noun} (updated)`
-              : `Refreshed · ${workflowsCount} ${noun} (no changes)`,
-          });
-        }
-      });
-    }
-
-    return () => { cancelled = true; };
-    // sourcesKey captures the connection identity + url changes that matter;
-    // re-deriving `sources` doesn't need to re-trigger when refs change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourcesKey, refreshTick, showAll, tick]);
-
   // Auto-clear the toast after a moment.
   useEffect(() => {
     if (!toast) return;
@@ -252,40 +129,26 @@ export function WorkflowSidebar({
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Auto-refresh every 30s, but only while the tab is visible. Pauses on
-  // backgrounded tabs, resumes (with an immediate catch-up tick) on return.
-  useEffect(() => {
-    let intervalId: number | null = null;
-    const bumpSilent = () => setTick((prev) => ({ n: prev.n + 1, manual: false }));
-    const start = () => {
-      if (intervalId !== null) return;
-      intervalId = window.setInterval(() => {
-        if (document.visibilityState === "visible") bumpSilent();
-      }, 30_000);
-    };
-    const stop = () => {
-      if (intervalId !== null) {
-        window.clearInterval(intervalId);
-        intervalId = null;
+  // Trigger a refresh via the shared poller and surface the outcome as a
+  // toast. Spinner state lives on the poller (`refreshing` prop).
+  const manualRefresh = async () => {
+    try {
+      const r = await onRefresh();
+      if (!r.ok) {
+        setToast({ kind: "err", text: "Couldn't reach n8n" });
+        return;
       }
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        bumpSilent();
-        start();
-      } else {
-        stop();
-      }
-    };
-    if (document.visibilityState === "visible") start();
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      stop();
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, []);
-
-  const manualRefresh = () => setTick((prev) => ({ n: prev.n + 1, manual: true }));
+      const noun = r.workflowsCount === 1 ? "workflow" : "workflows";
+      setToast({
+        kind: "ok",
+        text: r.changed
+          ? `Refreshed · ${r.workflowsCount} ${noun} (updated)`
+          : `Refreshed · ${r.workflowsCount} ${noun} (no changes)`,
+      });
+    } catch {
+      setToast({ kind: "err", text: "Couldn't reach n8n" });
+    }
+  };
 
   // Refresh tested-count badge each time the loaded workflow changes —
   // bumpTestCount fires on pick, and we want the sidebar count to reflect it.
@@ -296,7 +159,13 @@ export function WorkflowSidebar({
   const visible = useMemo(() => {
     if (!workflows) return [];
     const q = filter.toLowerCase();
-    const filtered = workflows
+    // In single-connection mode, hide rows from other connections — the
+    // poller fetches everything (so failure-alerts has all data) but the
+    // sidebar's view is scoped to the active connection.
+    const scoped = showAll
+      ? workflows
+      : workflows.filter((w) => w.connectionId === connections.activeId);
+    const filtered = scoped
       .filter((w) => (activeOnly ? w.active : true))
       .filter((w) => w.name.toLowerCase().includes(q));
     const sorted = [...filtered].sort((a, b) => {
@@ -325,7 +194,7 @@ export function WorkflowSidebar({
       }
     });
     return sorted;
-  }, [workflows, filter, activeOnly, sort, counts, lastRunAt]);
+  }, [workflows, filter, activeOnly, sort, counts, lastRunAt, showAll, connections.activeId]);
 
   // When showing all, group rows under their connection name (preserving
   // sort within each group). In single mode this is just one flat group.
@@ -436,7 +305,7 @@ export function WorkflowSidebar({
       <div className="pl-5 pr-3 py-2 flex items-center gap-2">
         <div className="flex-1">
           <span className="text-[13px] font-semibold tracking-[-0.01em] bg-gradient-to-r from-[var(--n8n)] to-[#7c3aed] bg-clip-text text-transparent">
-            n8n Studio
+            n8n studio
           </span>
         </div>
         <button
@@ -451,12 +320,24 @@ export function WorkflowSidebar({
       </div>
 
       {connections.connections.length > 0 && (
-        <div className="px-2 pt-2">
-          <ConnectionPicker
-            connections={connections}
-            showAll={showAll}
-            onSwitch={handleSwitch}
-          />
+        <div className="px-2 pt-2 flex items-center gap-1">
+          <div className="flex-1 min-w-0">
+            <ConnectionPicker
+              connections={connections}
+              showAll={showAll}
+              onSwitch={handleSwitch}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={manualRefresh}
+            disabled={loading || refreshing}
+            title={loading || refreshing ? "Refreshing…" : "Refresh workflows"}
+            aria-label="Refresh workflows"
+            className="self-stretch w-7 rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] flex items-center justify-center cursor-pointer flex-shrink-0 disabled:cursor-default disabled:opacity-60 disabled:hover:text-[var(--muted)]"
+          >
+            <RefreshIcon spinning={loading || refreshing} />
+          </button>
         </div>
       )}
 
@@ -468,16 +349,6 @@ export function WorkflowSidebar({
           placeholder={loading ? "Loading…" : "Search"}
           className="flex-1 min-w-0 px-2 py-1 text-[12px] rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--text)] outline-none focus:border-[var(--n8n)]"
         />
-        <button
-          type="button"
-          onClick={manualRefresh}
-          disabled={loading || refreshing}
-          title={loading || refreshing ? "Refreshing…" : "Refresh workflows"}
-          aria-label="Refresh workflows"
-          className="w-7 h-7 rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] flex items-center justify-center cursor-pointer flex-shrink-0 disabled:cursor-default disabled:opacity-60 disabled:hover:text-[var(--muted)]"
-        >
-          <RefreshIcon spinning={loading || refreshing} />
-        </button>
         <SortMenu
           value={sort}
           onChange={changeSort}
@@ -508,7 +379,7 @@ export function WorkflowSidebar({
         {!error && grouped.map((group) => (
           <div key={group.connectionId || "single"} className="mb-2">
             {showAll && (
-              <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--muted)]">
+              <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--red-text)]">
                 {group.connectionName}
               </div>
             )}
@@ -552,15 +423,16 @@ export function WorkflowSidebar({
         )}
       </div>
 
-      <div className="flex-shrink-0 border-t border-[var(--border)] pl-2 pr-4 pt-2 pb-4 flex items-center justify-end gap-1 bg-[var(--panel-soft)]">
+      <div className="flex-shrink-0 border-t border-[var(--border)] px-2 pt-2 pb-4 flex items-center justify-between gap-1 bg-[var(--panel-soft)]">
         <button
           type="button"
           onClick={onToggleTheme}
-          title="Toggle dark mode"
-          aria-label="Toggle dark mode"
-          className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)] cursor-pointer"
+          title={dark ? "Switch to light mode" : "Switch to dark mode"}
+          aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+          className="flex items-center gap-1.5 px-2 h-7 rounded-md text-[12px] text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)] cursor-pointer bg-transparent border-0"
         >
           {dark ? <SunIcon /> : <MoonIcon />}
+          <span>{dark ? "Light" : "Dark"}</span>
         </button>
         <Link
           href="/settings"
@@ -809,14 +681,6 @@ function RefreshIcon({ spinning }: { spinning?: boolean }) {
       <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
     </svg>
   );
-}
-
-// Cheap deep-equality via JSON stringification. Used to skip React re-renders
-// when a background poll returns identical data — workflows list has at most
-// a few hundred small objects, so this is microseconds and avoids the cost
-// of a per-field comparison.
-function jsonEqual<T>(a: T, b: T): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function SortIcon() {

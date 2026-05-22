@@ -184,6 +184,7 @@ export interface AppPrefs {
   dataViewDefault: "table" | "json";
   singleItemAsList: boolean;
   sidebarSortDefault: SidebarSort;
+  failureNotifications: boolean;
 }
 
 export const DEFAULT_PREFS: AppPrefs = {
@@ -191,6 +192,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   dataViewDefault: "table",
   singleItemAsList: true,
   sidebarSortDefault: "updated",
+  failureNotifications: true,
 };
 
 const VALID_SORTS: SidebarSort[] = ["usage", "name", "updated", "created", "run"];
@@ -208,6 +210,8 @@ export function readPrefs(): AppPrefs {
       singleItemAsList: parsed.singleItemAsList ?? DEFAULT_PREFS.singleItemAsList,
       sidebarSortDefault:
         sort && VALID_SORTS.includes(sort) ? sort : DEFAULT_PREFS.sidebarSortDefault,
+      failureNotifications:
+        parsed.failureNotifications ?? DEFAULT_PREFS.failureNotifications,
     };
   } catch {
     return DEFAULT_PREFS;

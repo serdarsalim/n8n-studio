@@ -1,6 +1,7 @@
 "use client";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { FailureAlerts } from "@/components/failure-alerts";
 import { NodeCheckList } from "@/components/node-check-list";
 import { WorkflowGraph } from "@/components/workflow-graph";
 import { ExecutionsModal } from "@/components/modals/executions-modal";
@@ -16,13 +17,17 @@ import {
   apiRun,
   bumpExecAccess,
   bumpTestCount,
+  DEFAULT_PREFS,
   readConnections,
+  readPrefs,
   readSession,
   readTheme,
   setTheme,
   writeConnections,
   writeSession,
 } from "@/lib/client";
+import { useN8nPoller } from "@/lib/use-n8n-poller";
+import type { FailedExecution } from "@/components/failure-alerts";
 import {
   buildExpressionResolver,
   buildRawResolver,
@@ -42,6 +47,42 @@ export default function Page() {
   const settings = useMemo(() => activeSettings(connections), [connections]);
   const [dark, setDark] = useState(false);
   const [modal, setModal] = useState<Modal>(null);
+  const [failureNotifications, setFailureNotifications] = useState<boolean>(
+    DEFAULT_PREFS.failureNotifications,
+  );
+  const poller = useN8nPoller(connections.connections);
+
+  // Derive today's failed executions from the poller's data. Workflow name
+  // comes from the workflow list (also fetched by the poller); fall back to
+  // the id if the workflow has been deleted since the execution ran.
+  const failures: FailedExecution[] = useMemo(() => {
+    if (!failureNotifications) return [];
+    // Rolling 24-hour window so a 11pm failure doesn't vanish at midnight.
+    const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
+    const nameByKey = new Map<string, string>();
+    for (const w of poller.workflows ?? []) {
+      nameByKey.set(`${w.connectionId}:${w.id}`, w.name);
+    }
+    return poller.executions
+      .filter((e) => {
+        if (!e.workflowId || !e.startedAt) return false;
+        if (e.status !== "error" && e.status !== "canceled") return false;
+        const t = Date.parse(e.startedAt);
+        return Number.isFinite(t) && t >= cutoffMs;
+      })
+      .map<FailedExecution>((e) => ({
+        executionId: e.id,
+        workflowId: e.workflowId!,
+        workflowName:
+          nameByKey.get(`${e.connectionId}:${e.workflowId}`) ?? `Workflow ${e.workflowId}`,
+        connectionId: e.connectionId,
+        connectionName: e.connectionName,
+        n8nUrl: e.n8nUrl,
+        startedAt: e.startedAt!,
+        status: e.status ?? "error",
+      }))
+      .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
+  }, [poller.workflows, poller.executions, failureNotifications]);
 
   const [workflow, setWorkflow] = useState<N8nWorkflow | null>(null);
   const [inputText, setInputText] = useState("");
@@ -75,7 +116,14 @@ export default function Page() {
       const w = Number(localStorage.getItem("n8n-ft.graphPane.width"));
       if (Number.isFinite(w) && w >= 120 && w <= 900) setGraphPaneWidth(w);
     } catch {}
+    setFailureNotifications(readPrefs().failureNotifications);
     setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    const onPrefs = () => setFailureNotifications(readPrefs().failureNotifications);
+    window.addEventListener("prefs:changed", onPrefs);
+    return () => window.removeEventListener("prefs:changed", onPrefs);
   }, []);
 
   // Drag-to-resize the workflow graph pane. Listeners on window so the
@@ -330,6 +378,13 @@ export default function Page() {
             ? { [workflow.id]: execution.status }
             : undefined
         }
+        workflows={poller.workflows}
+        lastStatus={poller.lastStatus}
+        lastRunAt={poller.lastRunAt}
+        loading={poller.loading}
+        refreshing={poller.refreshing}
+        error={poller.error}
+        onRefresh={poller.refresh}
       />
       <div className="flex-1 min-w-0 flex flex-col bg-[var(--panel)]">
       <header className="px-4 py-2 bg-[var(--panel)] border-b border-[var(--border)] flex items-center gap-4 sticky top-0 z-20">
@@ -383,6 +438,12 @@ export default function Page() {
             }
             label={verdict?.label ?? "Awaiting run"}
             onClick={() => workflow && setModal("executions")}
+          />
+        </div>
+        <div className="flex-shrink-0 flex items-center">
+          <FailureAlerts
+            failures={failures}
+            showAllConnections={connections.connections.length > 1}
           />
         </div>
 
