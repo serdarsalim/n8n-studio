@@ -381,6 +381,7 @@ export default function Page() {
         workflows={poller.workflows}
         lastStatus={poller.lastStatus}
         lastRunAt={poller.lastRunAt}
+        failedConnectionIds={poller.failedConnectionIds}
         loading={poller.loading}
         refreshing={poller.refreshing}
         error={poller.error}

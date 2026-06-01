@@ -28,6 +28,10 @@ export interface PollerData {
   // execution we see for a workflow wins.
   lastStatus: Record<string, string>;
   lastRunAt: Record<string, string>;
+  // Connection IDs whose latest workflow fetch failed. Sidebar groups for
+  // these connections show a "couldn't load" hint while still displaying
+  // their last-known workflows.
+  failedConnectionIds: string[];
   loading: boolean;
   refreshing: boolean;
   error: string | null;
@@ -49,6 +53,7 @@ export function useN8nPoller(connections: Connection[]): PollerData {
   const [executions, setExecutions] = useState<TaggedExecution[]>([]);
   const [lastStatus, setLastStatus] = useState<Record<string, string>>({});
   const [lastRunAt, setLastRunAt] = useState<Record<string, string>>({});
+  const [failedConnectionIds, setFailedConnectionIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +72,8 @@ export function useN8nPoller(connections: Connection[]): PollerData {
       setExecutions([]);
       setLastStatus({});
       setLastRunAt({});
-      setError("No connections configured.");
+      setFailedConnectionIds([]);
+      setError("No n8n connections yet. Add one to get rolling.");
       return;
     }
 
@@ -79,6 +85,7 @@ export function useN8nPoller(connections: Connection[]): PollerData {
     let workflowsFailed = false;
     let workflowsChanged = false;
     let workflowsCount = 0;
+    const failedIds: string[] = [];
 
     // Per-connection results. On failure we keep the previous data for that
     // connection so a single flaky API call doesn't nuke its sidebar group.
@@ -96,6 +103,7 @@ export function useN8nPoller(connections: Connection[]): PollerData {
           }))
           .catch(() => {
             workflowsFailed = true;
+            failedIds.push(c.id);
             return { ok: false as const, id: c.id };
           }),
       ),
@@ -116,6 +124,7 @@ export function useN8nPoller(connections: Connection[]): PollerData {
         workflowsChanged = true;
         return next;
       });
+      setFailedConnectionIds((p) => (jsonEqual(p, failedIds) ? p : failedIds));
     }).finally(() => {
       if (!cancelled && gen === genRef.current) setLoading(false);
     });
@@ -177,8 +186,11 @@ export function useN8nPoller(connections: Connection[]): PollerData {
           workflowsCount,
         });
       }
-      if (workflowsFailed && !cancelled && gen === genRef.current) {
-        setError("Couldn't reach n8n.");
+      // Only surface a top-level error when *every* connection failed —
+      // otherwise per-group hints in the sidebar carry the bad news while
+      // the working connections' workflows still render.
+      if (workflowsFailed && workflowsCount === 0 && !cancelled && gen === genRef.current) {
+        setError("None of your n8n instances are picking up. Network blip, or are they all asleep?");
       }
     });
 
@@ -236,6 +248,7 @@ export function useN8nPoller(connections: Connection[]): PollerData {
     executions,
     lastStatus,
     lastRunAt,
+    failedConnectionIds,
     loading,
     refreshing,
     error,

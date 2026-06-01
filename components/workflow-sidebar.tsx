@@ -36,6 +36,7 @@ export function WorkflowSidebar({
   workflows,
   lastStatus,
   lastRunAt,
+  failedConnectionIds,
   loading,
   refreshing,
   error,
@@ -57,6 +58,7 @@ export function WorkflowSidebar({
   workflows: TaggedWorkflow[] | null;
   lastStatus: Record<string, string>;
   lastRunAt: Record<string, string>;
+  failedConnectionIds: string[];
   loading: boolean;
   refreshing: boolean;
   error: string | null;
@@ -135,7 +137,7 @@ export function WorkflowSidebar({
     try {
       const r = await onRefresh();
       if (!r.ok) {
-        setToast({ kind: "err", text: "Couldn't reach n8n" });
+        setToast({ kind: "err", text: "n8n didn't pick up. Try again?" });
         return;
       }
       const noun = r.workflowsCount === 1 ? "workflow" : "workflows";
@@ -146,7 +148,7 @@ export function WorkflowSidebar({
           : `Refreshed · ${r.workflowsCount} ${noun} (no changes)`,
       });
     } catch {
-      setToast({ kind: "err", text: "Couldn't reach n8n" });
+      setToast({ kind: "err", text: "n8n didn't pick up. Try again?" });
     }
   };
 
@@ -201,26 +203,31 @@ export function WorkflowSidebar({
   const grouped: Array<{ connectionId: string; connectionName: string; rows: TaggedWorkflow[] }> = useMemo(() => {
     if (!showAll) {
       const only = visible[0];
-      return [
-        {
-          connectionId: only?.connectionId ?? "",
-          connectionName: only?.connectionName ?? "",
-          rows: visible,
-        },
-      ];
+      if (only) {
+        return [{ connectionId: only.connectionId, connectionName: only.connectionName, rows: visible }];
+      }
+      // No workflows for the active connection. If the active connection is
+      // the one that just failed, still render a header so the user sees
+      // *which* instance is down rather than an empty pane.
+      const active = connections.connections.find((c) => c.id === connections.activeId);
+      if (active && failedConnectionIds.includes(active.id)) {
+        return [{ connectionId: active.id, connectionName: active.name, rows: [] }];
+      }
+      return [];
     }
     // In show-all mode, group order follows the connection order configured
     // in Settings — never the sort. Workflows shuffle within a group when
     // the user changes sort, but the group headers themselves stay put so
-    // you don't lose your spot.
+    // you don't lose your spot. Failed connections appear as empty groups so
+    // they're never silently dropped.
     return connections.connections
       .map((c) => ({
         connectionId: c.id,
         connectionName: c.name,
         rows: visible.filter((w) => w.connectionId === c.id),
       }))
-      .filter((g) => g.rows.length > 0);
-  }, [visible, showAll, connections.connections]);
+      .filter((g) => g.rows.length > 0 || failedConnectionIds.includes(g.connectionId));
+  }, [visible, showAll, connections.connections, connections.activeId, failedConnectionIds]);
 
   const toggle = () => {
     const next = !collapsed;
@@ -371,16 +378,37 @@ export function WorkflowSidebar({
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 pt-2 pb-[50vh] [scrollbar-width:thin] [scrollbar-color:var(--border-strong)_transparent] [&::-webkit-scrollbar]:w-[5px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[var(--border-strong)] [&::-webkit-scrollbar-thumb]:rounded-full">
-        {error && (
+        {error && grouped.length === 0 && (
           <div className="text-[11px] text-[var(--red-text)] bg-[var(--red-bg)] px-2 py-1.5 rounded">
             {error}
           </div>
         )}
-        {!error && grouped.map((group) => (
+        {grouped.map((group) => {
+          const failed = group.connectionId
+            ? failedConnectionIds.includes(group.connectionId)
+            : failedConnectionIds.includes(connections.activeId ?? "");
+          const hasRows = group.rows.length > 0;
+          return (
           <div key={group.connectionId || "single"} className="mb-2">
-            {showAll && (
-              <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--red-text)]">
-                {group.connectionName}
+            {/* In single-connection mode the original UI didn't show a group
+                header. We only inject one when the connection is down so the
+                user knows *which* instance failed. */}
+            {(showAll || (!hasRows && failed)) && (
+              <div className="px-2 pt-2 pb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--red-text)]">
+                <span>{group.connectionName}</span>
+                {failed && (
+                  <span
+                    className="normal-case tracking-normal font-normal text-[10px] text-[var(--red-text)] opacity-80"
+                    title={hasRows ? "Couldn't reach this n8n. Showing what we last saw." : "This n8n is taking a nap. Or maybe it ran off."}
+                  >
+                    · {hasRows ? "showing last known list" : "took a nap"}
+                  </span>
+                )}
+              </div>
+            )}
+            {failed && !hasRows && (
+              <div className="mx-1 mb-1 text-[11px] text-[var(--muted)] px-2 py-2 italic">
+                This n8n isn&apos;t picking up. Probably napping. Give it a poke?
               </div>
             )}
             {group.rows.map((wf) => {
@@ -415,7 +443,8 @@ export function WorkflowSidebar({
               );
             })}
           </div>
-        ))}
+          );
+        })}
         {!loading && !error && workflows && visible.length === 0 && (
           <div className="text-[11px] text-[var(--muted)] px-2 py-3 text-center">
             No workflows match.
