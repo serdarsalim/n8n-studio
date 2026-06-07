@@ -401,10 +401,11 @@ export default function Page() {
           <CompactNode
             color="white"
             icon={<Image src="/n8n-icon.webp" alt="n8n" width={24} height={24} className="object-contain" />}
-            label={workflow ? "" : "No workflow loaded"}
+            label={workflow ? `Loaded: ${workflow.name}` : "No workflow loaded"}
             ariaLabel={workflow?.name ?? "No workflow loaded"}
             onClick={() => setModal("workflow")}
             glowN8n
+            wide
           />
           <CompactArrow />
           <CompactNode
@@ -788,6 +789,7 @@ function CompactNode({
   ariaLabel,
   onClick,
   glowN8n,
+  wide,
 }: {
   color: "blue" | "white" | "green" | "red" | "muted";
   icon: React.ReactNode;
@@ -795,6 +797,7 @@ function CompactNode({
   ariaLabel?: string;
   onClick: () => void;
   glowN8n?: boolean;
+  wide?: boolean;
 }) {
   const bg = {
     blue: "bg-[#2563eb] border-[#1d4ed8]",
@@ -809,7 +812,7 @@ function CompactNode({
       type="button"
       onClick={onClick}
       aria-label={ariaLabel ?? label}
-      className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-[var(--bg)] cursor-pointer min-w-0 max-w-[260px]"
+      className={`flex items-center gap-2 px-2 py-1 rounded-md hover:bg-[var(--bg)] cursor-pointer min-w-0 ${wide ? "max-w-[560px]" : "max-w-[260px]"}`}
     >
       <span className={`w-9 h-9 rounded-lg border flex items-center justify-center flex-shrink-0 ${bg} ${ring}`}>
         {icon}
