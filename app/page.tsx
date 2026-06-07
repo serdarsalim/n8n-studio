@@ -438,6 +438,9 @@ export default function Page() {
             label={verdict?.label ?? "Awaiting run"}
             onClick={() => workflow && setModal("executions")}
           />
+          {execution && (
+            <CopyExecutionButton execution={execution} />
+          )}
         </div>
         <div className="flex-1 basis-0 flex items-center justify-end gap-2">
           <FailureAlerts
@@ -470,12 +473,9 @@ export default function Page() {
                   >
                     {workflow.name}
                   </h2>
-                  {(execution || settings.n8nUrl) && (
-                    <div className="flex-shrink-0 flex items-center gap-1.5">
-                      {execution && <CopyExecutionButton execution={execution} />}
-                      {settings.n8nUrl && (
-                        <OpenInN8nLink baseUrl={settings.n8nUrl} workflowId={workflow.id} />
-                      )}
+                  {settings.n8nUrl && (
+                    <div className="flex-shrink-0 flex items-center">
+                      <OpenInN8nLink baseUrl={settings.n8nUrl} workflowId={workflow.id} />
                     </div>
                   )}
                 </div>
