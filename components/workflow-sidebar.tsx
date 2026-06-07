@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppSettings, ConnectionsBlob } from "@/lib/types";
 import { readPrefs, readTestCounts, type SidebarSort } from "@/lib/client";
@@ -411,10 +412,29 @@ export function WorkflowSidebar({
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 pt-2 pb-[50vh] [scrollbar-width:thin] [scrollbar-color:var(--border-strong)_transparent] [&::-webkit-scrollbar]:w-[5px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[var(--border-strong)] [&::-webkit-scrollbar-thumb]:rounded-full">
-        {error && grouped.length === 0 && (
-          <div className="text-[11px] text-[var(--red-text)] bg-[var(--red-bg)] px-2 py-1.5 rounded">
-            {error}
+        {connections.connections.length === 0 ? (
+          <div className="px-3 pt-6 pb-4 text-center">
+            <div className="text-[14px] font-semibold text-[var(--text)] mb-1">
+              Welcome to n8n studio 👋
+            </div>
+            <div className="text-[12px] text-[var(--muted)] leading-relaxed mb-4">
+              Connect an n8n instance — paste its URL and API key — to load and
+              test your workflows.
+            </div>
+            <Link
+              href="/settings"
+              className="inline-flex items-center justify-center gap-1.5 w-full h-9 rounded-md bg-[var(--n8n)] text-white text-[13px] font-semibold hover:bg-[var(--n8n-dark)] no-underline"
+            >
+              <PlusIcon />
+              Add a connection
+            </Link>
           </div>
+        ) : (
+          error && grouped.length === 0 && (
+            <div className="text-[11px] text-[var(--red-text)] bg-[var(--red-bg)] px-2 py-1.5 rounded">
+              {error}
+            </div>
+          )
         )}
         {grouped.map((group) => {
           const failed = group.connectionId
@@ -787,6 +807,24 @@ function SearchIcon() {
     >
       <circle cx="11" cy="11" r="7" />
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-4 h-4"
+      aria-hidden
+    >
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   );
 }

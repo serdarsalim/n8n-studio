@@ -73,7 +73,9 @@ export function useN8nPoller(connections: Connection[]): PollerData {
       setLastStatus({});
       setLastRunAt({});
       setFailedConnectionIds([]);
-      setError("No n8n connections yet. Add one to get rolling.");
+      // Not an error — it's the first-run state. The sidebar renders a
+      // friendly onboarding prompt for the no-connections case instead.
+      setError(null);
       return;
     }
 
