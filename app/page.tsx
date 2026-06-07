@@ -1,6 +1,8 @@
 "use client";
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { GearIcon, MoonIcon, SunIcon } from "@/components/icons";
 import { FailureAlerts } from "@/components/failure-alerts";
 import { NodeCheckList } from "@/components/node-check-list";
 import { WorkflowGraph } from "@/components/workflow-graph";
@@ -371,8 +373,6 @@ export default function Page() {
         currentId={workflow?.id ?? null}
         onPick={onPickWorkflow}
         onPickFromConnection={onPickFromConnection}
-        dark={dark}
-        onToggleTheme={toggleTheme}
         statusOverrides={
           workflow && execution?.status
             ? { [workflow.id]: execution.status }
@@ -389,7 +389,13 @@ export default function Page() {
       />
       <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--panel)] overflow-hidden md:rounded-xl md:border md:border-[var(--border)]">
       <header className="flex-shrink-0 h-14 px-4 bg-[var(--panel)] flex items-center gap-4 z-20">
-        <div className="flex-1 flex items-center justify-center gap-1 min-w-0">
+        <div className="flex-1 basis-0 flex items-center min-w-0">
+          <FailureAlerts
+            failures={failures}
+            showAllConnections={connections.connections.length > 1}
+          />
+        </div>
+        <div className="flex-none flex items-center justify-center gap-1 min-w-0">
           <CompactNode
             color="blue"
             icon={<Image src="/json-icon.png" alt="json" width={20} height={20} className="invert brightness-200" />}
@@ -438,13 +444,9 @@ export default function Page() {
             onClick={() => workflow && setModal("executions")}
           />
         </div>
-        <div className="flex-shrink-0 flex items-center">
-          <FailureAlerts
-            failures={failures}
-            showAllConnections={connections.connections.length > 1}
-          />
+        <div className="flex-1 basis-0 flex items-center justify-end">
+          <HeaderMenu dark={dark} onToggleTheme={toggleTheme} />
         </div>
-
       </header>
 
 
@@ -562,6 +564,71 @@ export default function Page() {
         }}
       />
     </main>
+  );
+}
+
+// Top-right header menu — collapses the theme toggle and Settings into a
+// single dropdown. This app has no login, so it's a plain "Menu", not a
+// user/profile menu.
+function HeaderMenu({ dark, onToggleTheme }: { dark: boolean; onToggleTheme: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title="Menu"
+        aria-label="Menu"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="w-8 h-8 rounded-md border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--n8n)] flex items-center justify-center cursor-pointer"
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" aria-hidden>
+          <circle cx="5" cy="12" r="1.6" />
+          <circle cx="12" cy="12" r="1.6" />
+          <circle cx="19" cy="12" r="1.6" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-[36px] min-w-[180px] bg-[var(--panel)] border border-[var(--border)] rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.15)] z-[200] py-1"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onToggleTheme();
+              setOpen(false);
+            }}
+            className="w-full text-left flex items-center gap-2.5 px-3 py-[7px] text-[12px] cursor-pointer border-0 bg-transparent text-[var(--text)] hover:bg-[var(--panel-soft)]"
+          >
+            {dark ? <SunIcon /> : <MoonIcon />}
+            <span>{dark ? "Light mode" : "Dark mode"}</span>
+          </button>
+          <Link
+            href="/settings"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="w-full text-left flex items-center gap-2.5 px-3 py-[7px] text-[12px] cursor-pointer text-[var(--text)] hover:bg-[var(--panel-soft)] no-underline"
+          >
+            <GearIcon />
+            <span>Settings</span>
+          </Link>
+        </div>
+      )}
+    </div>
   );
 }
 

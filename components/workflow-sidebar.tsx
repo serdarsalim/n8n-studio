@@ -1,10 +1,8 @@
 "use client";
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppSettings, ConnectionsBlob } from "@/lib/types";
 import { readPrefs, readTestCounts, type SidebarSort } from "@/lib/client";
 import type { RefreshResult, TaggedWorkflow } from "@/lib/use-n8n-poller";
-import { GearIcon, MoonIcon, SunIcon } from "@/components/icons";
 
 const COLLAPSED_KEY = "n8n-ft.sidebar.collapsed";
 const ACTIVE_KEY = "n8n-ft.sidebar.activeOnly";
@@ -30,8 +28,6 @@ export function WorkflowSidebar({
   currentId,
   onPick,
   onPickFromConnection,
-  dark,
-  onToggleTheme,
   statusOverrides,
   workflows,
   lastStatus,
@@ -48,8 +44,6 @@ export function WorkflowSidebar({
   currentId: string | null;
   onPick: (id: string, name: string) => void;
   onPickFromConnection: (connectionId: string, workflowId: string, name: string) => void;
-  dark: boolean;
-  onToggleTheme: () => void;
   // Per-workflow status overrides, used when the page already knows a
   // status (e.g. the currently-loaded execution) but the recent-executions
   // batch didn't include that workflow.
@@ -281,25 +275,6 @@ export function WorkflowSidebar({
         >
           n8n STUDIO
         </div>
-        <div className="mt-auto pb-2 flex flex-col items-center gap-1">
-          <button
-            type="button"
-            onClick={onToggleTheme}
-            title="Toggle dark mode"
-            aria-label="Toggle dark mode"
-            className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)] cursor-pointer"
-          >
-            {dark ? <SunIcon /> : <MoonIcon />}
-          </button>
-          <Link
-            href="/settings"
-            title="Settings"
-            aria-label="Settings"
-            className="w-7 h-7 rounded-md flex items-center justify-center text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)] no-underline"
-          >
-            <GearIcon />
-          </Link>
-        </div>
       </aside>
     );
   }
@@ -450,28 +425,6 @@ export function WorkflowSidebar({
             No workflows match.
           </div>
         )}
-      </div>
-
-      <div className="flex-shrink-0 border-t border-[var(--border)] px-2 pt-2 pb-4 flex items-center justify-between gap-1 bg-[var(--panel-soft)]">
-        <button
-          type="button"
-          onClick={onToggleTheme}
-          title={dark ? "Switch to light mode" : "Switch to dark mode"}
-          aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-          className="flex items-center gap-1.5 px-2 h-7 rounded-md text-[12px] text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)] cursor-pointer bg-transparent border-0"
-        >
-          {dark ? <SunIcon /> : <MoonIcon />}
-          <span>{dark ? "Light" : "Dark"}</span>
-        </button>
-        <Link
-          href="/settings"
-          title="Settings"
-          aria-label="Settings"
-          className="flex items-center gap-1.5 px-2 h-7 rounded-md text-[12px] text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)] no-underline"
-        >
-          <GearIcon />
-          <span>Settings</span>
-        </Link>
       </div>
       {/* Resize handle: 4px-wide invisible strip on the right edge.
           Click-and-drag adjusts sidebar width; the surrounding `aside`
