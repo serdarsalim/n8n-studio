@@ -389,7 +389,26 @@ export default function Page() {
       />
       <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--panel)] overflow-hidden md:rounded-xl md:border md:border-[var(--border)]">
       <header className="flex-shrink-0 h-14 px-4 bg-[var(--panel)] flex items-center gap-4 z-20">
-        <div className="flex-1 basis-0 min-w-0" />
+        <div className="flex-1 basis-0 min-w-0 flex flex-col justify-center">
+          {workflow && (
+            <>
+              <span
+                className="text-[13px] font-semibold text-[var(--text)] truncate leading-tight"
+                title={workflow.name}
+              >
+                {workflow.name}
+              </span>
+              {execution?.startedAt && (
+                <span
+                  className="text-[11px] text-[var(--muted)] truncate leading-tight"
+                  title={fmtExecStarted(execution.startedAt)}
+                >
+                  Last run: {fmtRelative(execution.startedAt)}
+                </span>
+              )}
+            </>
+          )}
+        </div>
         <div className="flex-none flex items-center justify-center gap-1 min-w-0">
           <CompactNode
             color="blue"
@@ -401,20 +420,11 @@ export default function Page() {
           <CompactNode
             color="white"
             icon={<Image src="/n8n-icon.webp" alt="n8n" width={24} height={24} className="object-contain" />}
-            label={workflow ? `Loaded: ${workflow.name}` : "No workflow loaded"}
+            label={workflow ? "" : "No workflow loaded"}
             ariaLabel={workflow?.name ?? "No workflow loaded"}
             onClick={() => setModal("workflow")}
             glowN8n
-            wide
           />
-          {execution?.startedAt && (
-            <span
-              className="text-[12px] text-[var(--muted)] whitespace-nowrap"
-              title={fmtExecStarted(execution.startedAt)}
-            >
-              Last run: {fmtRelative(execution.startedAt)}
-            </span>
-          )}
           <CompactArrow />
           <CompactNode
             color={
