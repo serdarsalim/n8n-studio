@@ -12,11 +12,14 @@ export function WorkflowModal({
   onClose,
   connections,
   onPickFromConnection,
+  lastRunAt,
 }: {
   open: boolean;
   onClose: () => void;
   connections: ConnectionsBlob;
   onPickFromConnection: (connectionId: string, workflowId: string, name: string) => void;
+  // Last-run timestamps from the poller, keyed `${connectionId}:${workflowId}`.
+  lastRunAt: Record<string, string>;
 }) {
   // Which n8n instance the workflow list is showing. Defaults to the active
   // connection each time the modal opens.
@@ -182,7 +185,11 @@ export function WorkflowModal({
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-[13px] truncate">{wf.name}</div>
                     <div className="text-[11px] text-[var(--muted)] font-mono truncate">
-                      {fmtMeta(wf)}
+                      Last run:{" "}
+                      {conn && lastRunAt[`${conn.id}:${wf.id}`]
+                        ? fmtRelative(lastRunAt[`${conn.id}:${wf.id}`])
+                        : "never run"}
+                      {wf.updatedAt && <> | Updated {fmtDate(wf.updatedAt)}</>}
                     </div>
                   </div>
                   {count > 0 && (
@@ -317,11 +324,24 @@ function ts(d?: string): number {
   return d ? Date.parse(d) || 0 : 0;
 }
 
-function fmtMeta(wf: N8nWorkflowSummary): string {
-  const parts: string[] = [];
-  if (wf.updatedAt) parts.push(`updated ${fmtDate(wf.updatedAt)}`);
-  if (wf.createdAt) parts.push(`created ${fmtDate(wf.createdAt)}`);
-  return parts.join(" | ");
+// "3 min ago", "2 hr ago", "5 days ago", "3 weeks ago" — for last-run times.
+function fmtRelative(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  const diffSec = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (diffSec < 60) return "just now";
+  const min = Math.round(diffSec / 60);
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr} hr ago`;
+  const day = Math.round(hr / 24);
+  if (day < 7) return `${day} day${day === 1 ? "" : "s"} ago`;
+  const wk = Math.round(day / 7);
+  if (wk < 5) return `${wk} week${wk === 1 ? "" : "s"} ago`;
+  const mo = Math.round(day / 30);
+  if (mo < 12) return `${mo} mon ago`;
+  const yr = Math.round(mo / 12);
+  return `${yr} yr ago`;
 }
 
 function fmtDate(iso: string): string {
