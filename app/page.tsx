@@ -28,7 +28,11 @@ import {
   writeSession,
 } from "@/lib/client";
 import { useN8nPoller } from "@/lib/use-n8n-poller";
-import type { FailedExecution } from "@/components/failure-alerts";
+import {
+  FailuresModal,
+  failedWorkflowCount,
+  type FailedExecution,
+} from "@/components/failure-alerts";
 import {
   buildExpressionResolver,
   buildRawResolver,
@@ -48,6 +52,7 @@ export default function Page() {
   const settings = useMemo(() => activeSettings(connections), [connections]);
   const [dark, setDark] = useState(false);
   const [modal, setModal] = useState<Modal>(null);
+  const [showFailures, setShowFailures] = useState(false);
   const [failureNotifications, setFailureNotifications] = useState<boolean>(
     DEFAULT_PREFS.failureNotifications,
   );
@@ -382,6 +387,7 @@ export default function Page() {
         lastRunAt={poller.lastRunAt}
         failedConnectionIds={poller.failedConnectionIds}
         failures={failures}
+        onOpenFailures={() => setShowFailures(true)}
         loading={poller.loading}
         refreshing={poller.refreshing}
         error={poller.error}
@@ -457,7 +463,12 @@ export default function Page() {
           )}
         </div>
         <div className="flex-1 basis-0 flex items-center justify-end">
-          <HeaderMenu dark={dark} onToggleTheme={toggleTheme} />
+          <HeaderMenu
+            dark={dark}
+            onToggleTheme={toggleTheme}
+            failedCount={failedWorkflowCount(failures)}
+            onOpenFailures={() => setShowFailures(true)}
+          />
         </div>
       </header>
 
@@ -532,6 +543,13 @@ export default function Page() {
       </section>
       </div>
 
+      <FailuresModal
+        open={showFailures}
+        onClose={() => setShowFailures(false)}
+        failures={failures}
+        showAllConnections={connections.connections.length > 1}
+      />
+
       <WorkflowModal
         open={modal === "workflow"}
         onClose={() => setModal(null)}
@@ -579,7 +597,17 @@ export default function Page() {
 // Top-right header menu — collapses the theme toggle and Settings into a
 // single dropdown. This app has no login, so it's a plain "Menu", not a
 // user/profile menu.
-function HeaderMenu({ dark, onToggleTheme }: { dark: boolean; onToggleTheme: () => void }) {
+function HeaderMenu({
+  dark,
+  onToggleTheme,
+  failedCount,
+  onOpenFailures,
+}: {
+  dark: boolean;
+  onToggleTheme: () => void;
+  failedCount: number;
+  onOpenFailures: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -620,8 +648,26 @@ function HeaderMenu({ dark, onToggleTheme }: { dark: boolean; onToggleTheme: () 
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-[36px] min-w-[180px] bg-[var(--panel)] border border-[var(--border)] rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.15)] z-[200] py-1"
+          className="absolute right-0 top-[36px] min-w-[190px] bg-[var(--panel)] border border-[var(--border)] rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.15)] z-[200] py-1"
         >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onOpenFailures();
+              setOpen(false);
+            }}
+            className="w-full text-left flex items-center gap-2.5 px-3 py-[7px] text-[12px] cursor-pointer border-0 bg-transparent text-[var(--text)] hover:bg-[var(--panel-soft)]"
+          >
+            <WarningSvg />
+            <span className="flex-1">Failed executions</span>
+            {failedCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-[var(--red-bg)] text-[var(--red-text)]">
+                {failedCount}
+              </span>
+            )}
+          </button>
+          <div className="my-1 border-t border-[var(--border)]" />
           <button
             type="button"
             role="menuitem"
@@ -776,6 +822,16 @@ function DotSvg({ small }: { small?: boolean } = {}) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${small ? "w-4 h-4" : "w-8 h-8"} text-[var(--muted-2)]`}>
       <circle cx="12" cy="12" r="4" />
+    </svg>
+  );
+}
+
+function WarningSvg() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-[var(--red-text)]">
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
     </svg>
   );
 }

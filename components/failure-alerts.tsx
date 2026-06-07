@@ -54,89 +54,130 @@ function groupByWorkflow(failures: FailedExecution[]): FailureGroup[] {
   );
 }
 
-export function FailureAlerts({
+// Dismissals persist across sessions, keyed by workflow → the execution id
+// that was dismissed. A *new* failure for the same workflow has a different
+// latest execution id, so it re-surfaces; the one you dismissed stays gone.
+const DISMISSED_KEY = "n8n-ft.failures.dismissed";
+
+function readDismissed(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(DISMISSED_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") return parsed as Record<string, string>;
+    }
+  } catch {}
+  return {};
+}
+
+function writeDismissed(map: Record<string, string>) {
+  try {
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify(map));
+  } catch {}
+}
+
+// Number of distinct workflows with failures in the window — used for the
+// menu item's count badge.
+export function failedWorkflowCount(failures: FailedExecution[]): number {
+  return groupByWorkflow(failures).length;
+}
+
+// The dismissable pill. Opening the full list is delegated to `onOpen` so the
+// modal can live at the page level (and also be opened from the header menu).
+export function FailuresBadge({
   failures,
-  showAllConnections,
+  onOpen,
 }: {
   failures: FailedExecution[];
-  // When true, the modal labels each row with its connection (multi-account
-  // setups). Single-connection users don't need the noise.
-  showAllConnections: boolean;
+  onOpen: () => void;
 }) {
-  const [modalOpen, setModalOpen] = useState(false);
-  // Group keys (connection:workflow) the user has acknowledged via the badge
-  // X. Lives in component memory only — a refresh re-surfaces everything,
-  // matching the "today's failures" framing.
-  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
+  const [dismissed, setDismissed] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setDismissed(readDismissed());
+  }, []);
 
   const groups = useMemo(() => groupByWorkflow(failures), [failures]);
   const undismissed = useMemo(
-    () => groups.filter((g) => !dismissedKeys.has(g.key)),
-    [groups, dismissedKeys],
+    () => groups.filter((g) => dismissed[g.key] !== g.latest.executionId),
+    [groups, dismissed],
   );
 
-  if (undismissed.length === 0 && !modalOpen) {
-    return null;
-  }
+  if (undismissed.length === 0) return null;
 
   const dismissBadge = () => {
-    setDismissedKeys(new Set(groups.map((g) => g.key)));
+    const next = { ...dismissed };
+    for (const g of groups) next[g.key] = g.latest.executionId;
+    setDismissed(next);
+    writeDismissed(next);
   };
 
   return (
-    <>
-      {undismissed.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setModalOpen(true)}
-          title={`${undismissed.length} workflow${undismissed.length === 1 ? "" : "s"} failed today — click to view`}
-          aria-label="View failed executions"
-          className="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md bg-[var(--red-bg)] text-[var(--red-text)] border border-[var(--red-text)]/40 hover:border-[var(--red-text)] cursor-pointer text-[12px] font-medium"
-        >
-          <WarningIcon />
-          <span>
-            {undismissed.length} failed
-          </span>
-          <span
-            role="button"
-            tabIndex={0}
-            aria-label="Dismiss"
-            onClick={(e) => {
-              e.stopPropagation();
-              dismissBadge();
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
-                dismissBadge();
-              }
-            }}
-            className="ml-0.5 w-5 h-5 rounded flex items-center justify-center text-[var(--red-text)] hover:bg-[var(--red-text)]/15 cursor-pointer"
-          >
-            <CloseIcon />
-          </span>
-        </button>
-      )}
-
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={`Failed workflows · last 24h (${groups.length})`}
+    <button
+      type="button"
+      onClick={onOpen}
+      title={`${undismissed.length} workflow${undismissed.length === 1 ? "" : "s"} failed today — click to view`}
+      aria-label="View failed executions"
+      className="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md bg-[var(--red-bg)] text-[var(--red-text)] border border-[var(--red-text)]/40 hover:border-[var(--red-text)] cursor-pointer text-[12px] font-medium"
+    >
+      <WarningIcon />
+      <span className="flex-1 text-left">{undismissed.length} failed</span>
+      <span
+        role="button"
+        tabIndex={0}
+        aria-label="Dismiss"
+        onClick={(e) => {
+          e.stopPropagation();
+          dismissBadge();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            e.stopPropagation();
+            dismissBadge();
+          }
+        }}
+        className="ml-0.5 w-5 h-5 rounded flex items-center justify-center text-[var(--red-text)] hover:bg-[var(--red-text)]/15 cursor-pointer flex-shrink-0"
       >
-        {groups.length === 0 ? (
-          <p className="text-[13px] text-[var(--muted)]">
-            Nothing failed in the last 24 hours.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {groups.map((g) => (
-              <FailureRow key={g.key} group={g} showConnection={showAllConnections} />
-            ))}
-          </ul>
-        )}
-      </Modal>
-    </>
+        <CloseIcon />
+      </span>
+    </button>
+  );
+}
+
+// The full failed-executions list. Controlled open state so it can be
+// triggered from the sidebar badge or the header menu.
+export function FailuresModal({
+  open,
+  onClose,
+  failures,
+  showAllConnections,
+}: {
+  open: boolean;
+  onClose: () => void;
+  failures: FailedExecution[];
+  // When true, each row is labeled with its connection (multi-account setups).
+  showAllConnections: boolean;
+}) {
+  const groups = useMemo(() => groupByWorkflow(failures), [failures]);
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Failed workflows · last 24h (${groups.length})`}
+    >
+      {groups.length === 0 ? (
+        <p className="text-[13px] text-[var(--muted)]">
+          Nothing failed in the last 24 hours.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {groups.map((g) => (
+            <FailureRow key={g.key} group={g} showConnection={showAllConnections} />
+          ))}
+        </ul>
+      )}
+    </Modal>
   );
 }
 

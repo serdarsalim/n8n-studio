@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppSettings, ConnectionsBlob } from "@/lib/types";
 import { readPrefs, readTestCounts, type SidebarSort } from "@/lib/client";
 import type { RefreshResult, TaggedWorkflow } from "@/lib/use-n8n-poller";
-import { FailureAlerts, type FailedExecution } from "@/components/failure-alerts";
+import { FailuresBadge, type FailedExecution } from "@/components/failure-alerts";
 
 const COLLAPSED_KEY = "n8n-ft.sidebar.collapsed";
 const ACTIVE_KEY = "n8n-ft.sidebar.activeOnly";
@@ -35,6 +35,7 @@ export function WorkflowSidebar({
   lastRunAt,
   failedConnectionIds,
   failures,
+  onOpenFailures,
   loading,
   refreshing,
   error,
@@ -56,6 +57,7 @@ export function WorkflowSidebar({
   lastRunAt: Record<string, string>;
   failedConnectionIds: string[];
   failures: FailedExecution[];
+  onOpenFailures: () => void;
   loading: boolean;
   refreshing: boolean;
   error: string | null;
@@ -386,10 +388,7 @@ export function WorkflowSidebar({
           cross-connection summary (not the loaded workflow), and dismissable
           via its own X. Renders nothing when there's nothing to report. */}
       <div className="px-2 pt-2 empty:hidden [&>button]:w-full [&>button]:justify-start">
-        <FailureAlerts
-          failures={failures}
-          showAllConnections={connections.connections.length > 1}
-        />
+        <FailuresBadge failures={failures} onOpen={onOpenFailures} />
       </div>
 
       {toast && (
