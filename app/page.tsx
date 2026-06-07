@@ -527,9 +527,13 @@ export default function Page() {
                 style={{ width: graphPaneWidth }}
               >
                 {(settings.n8nUrl || execution) && (
-                  <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-1.5">
+                  <div className="absolute top-2 right-2 z-10 flex flex-col items-stretch gap-1.5">
                     {settings.n8nUrl && (
-                      <OpenInN8nLink baseUrl={settings.n8nUrl} workflowId={workflow.id} />
+                      <OpenInN8nLink
+                        baseUrl={settings.n8nUrl}
+                        workflowId={workflow.id}
+                        executionId={execution?.id ?? null}
+                      />
                     )}
                     {execution && <CopyExecutionButton execution={execution} />}
                   </div>
@@ -755,7 +759,15 @@ function HeaderMenu({
   );
 }
 
-function OpenInN8nLink({ baseUrl, workflowId }: { baseUrl: string; workflowId: string }) {
+function OpenInN8nLink({
+  baseUrl,
+  workflowId,
+  executionId,
+}: {
+  baseUrl: string;
+  workflowId: string;
+  executionId?: string | null;
+}) {
   // Strip everything past the origin — users sometimes paste the editor URL
   // (e.g. https://n8n.example.com/home/workflows) but the workflow editor
   // lives at /workflow/<id> on the same host.
@@ -765,14 +777,18 @@ function OpenInN8nLink({ baseUrl, workflowId }: { baseUrl: string; workflowId: s
   } catch {
     origin = baseUrl.replace(/\/+$/, "");
   }
-  const href = `${origin}/workflow/${workflowId}`;
+  // Deep-link to the loaded execution when there is one, else the workflow.
+  const href = executionId
+    ? `${origin}/workflow/${workflowId}/executions/${executionId}`
+    : `${origin}/workflow/${workflowId}`;
+  const label = executionId ? "Open execution in n8n" : "Open this workflow in n8n";
   return (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      title="Open this workflow in n8n"
-      aria-label="Open this workflow in n8n"
+      title={label}
+      aria-label={label}
       className="h-7 px-2 text-[11px] font-medium rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--n8n)] flex items-center gap-1.5 cursor-pointer no-underline flex-shrink-0"
     >
       <svg
