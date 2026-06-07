@@ -200,7 +200,7 @@ function DataPane({
           <CopyButton value={items} />
         </div>
       </div>
-      <div className="bg-[var(--panel-soft)] px-2 py-2 max-h-[360px] overflow-auto min-w-0">
+      <div className="thin-scroll bg-[var(--panel-soft)] px-2 py-2 max-h-[360px] overflow-auto min-w-0">
         {count === 0 ? (
           <div className="text-[12px] text-[var(--muted)] px-2 py-3">No data</div>
         ) : activeView === "table" ? (
@@ -370,7 +370,7 @@ function ItemsTable({ items }: { items: Array<Record<string, unknown>> }) {
     }
   }
   return (
-    <div className="overflow-auto">
+    <div className="thin-scroll overflow-auto">
       <table className="w-full border-collapse text-[12px] font-mono">
         <thead>
           <tr>
@@ -756,7 +756,7 @@ function renderCodeParams(check: NodeCheck): React.ReactNode[] {
         key="code"
         k="code"
         v={
-          <pre className="m-0 font-mono text-[12px] whitespace-pre-wrap break-words bg-[var(--panel)] border border-[var(--border)] rounded px-2 py-2 max-h-[260px] overflow-auto">
+          <pre className="thin-scroll m-0 font-mono text-[12px] whitespace-pre-wrap break-words bg-[var(--panel)] border border-[var(--border)] rounded px-2 py-2 max-h-[260px] overflow-auto">
             {code}
           </pre>
         }
@@ -1140,7 +1140,7 @@ function HtmlValue({
           style={{ background: dark ? "#1a1a1e" : "#ffffff", height }}
         />
       ) : (
-        <pre className="m-0 font-mono text-[12px] whitespace-pre-wrap break-words bg-[var(--panel)] border border-[var(--border)] rounded px-2 py-2 max-h-[300px] overflow-auto">
+        <pre className="thin-scroll m-0 font-mono text-[12px] whitespace-pre-wrap break-words bg-[var(--panel)] border border-[var(--border)] rounded px-2 py-2 max-h-[300px] overflow-auto">
           {value}
         </pre>
       )}
