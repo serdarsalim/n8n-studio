@@ -592,12 +592,20 @@ function HeaderMenu({ dark, onToggleTheme }: { dark: boolean; onToggleTheme: () 
         aria-label="Menu"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="w-8 h-8 rounded-md border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--n8n)] flex items-center justify-center cursor-pointer"
+        className="h-7 pl-2.5 pr-2 text-[12px] font-medium rounded-md border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--n8n)] flex items-center gap-1.5 cursor-pointer"
       >
-        <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" aria-hidden>
-          <circle cx="5" cy="12" r="1.6" />
-          <circle cx="12" cy="12" r="1.6" />
-          <circle cx="19" cy="12" r="1.6" />
+        <span>Menu</span>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`w-3 h-3 transition-transform ${open ? "rotate-180" : ""}`}
+          aria-hidden
+        >
+          <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
       {open && (
