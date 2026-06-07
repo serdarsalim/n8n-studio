@@ -407,6 +407,14 @@ export default function Page() {
             glowN8n
             wide
           />
+          {execution?.startedAt && (
+            <span
+              className="text-[12px] text-[var(--muted)] whitespace-nowrap"
+              title={fmtExecStarted(execution.startedAt)}
+            >
+              Last run: {fmtRelative(execution.startedAt)}
+            </span>
+          )}
           <CompactArrow />
           <CompactNode
             color={
@@ -434,14 +442,6 @@ export default function Page() {
             label={verdict?.label ?? "Awaiting run"}
             onClick={() => workflow && setModal("executions")}
           />
-          {execution?.startedAt && (
-            <span
-              className="text-[12px] text-[var(--muted)] whitespace-nowrap"
-              title={fmtExecStarted(execution.startedAt)}
-            >
-              Last run: {fmtRelative(execution.startedAt)}
-            </span>
-          )}
           {execution && (
             <CopyExecutionButton execution={execution} />
           )}
