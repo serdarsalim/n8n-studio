@@ -316,7 +316,7 @@ export function WorkflowSidebar({
             disabled={loading || refreshing}
             title={loading || refreshing ? "Refreshing…" : "Refresh workflows"}
             aria-label="Refresh workflows"
-            className="self-stretch w-7 rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] flex items-center justify-center cursor-pointer flex-shrink-0 disabled:cursor-default disabled:opacity-60 disabled:hover:text-[var(--muted)]"
+            className="w-7 h-7 rounded-md text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--bg)] flex items-center justify-center cursor-pointer flex-shrink-0 disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:text-[var(--muted)]"
           >
             <RefreshIcon spinning={loading || refreshing} />
           </button>
@@ -503,7 +503,7 @@ function ConnectionPicker({
         type="button"
         onClick={() => setOpen((v) => !v)}
         title={showAll ? "Showing workflows from every connection" : active ? `Active: ${active.name}` : "No active connection"}
-        className="w-full flex items-center gap-2 px-2 py-1.5 rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[12px] text-[var(--text)] hover:border-[var(--n8n)] cursor-pointer"
+        className="w-full flex items-center gap-1 px-1.5 py-1 rounded-md text-[14px] font-semibold text-[var(--text)] hover:bg-[var(--bg)] cursor-pointer bg-transparent border-0"
       >
         <span className="flex-1 truncate text-left">{label}</span>
         <svg
@@ -513,7 +513,7 @@ function ConnectionPicker({
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="w-3 h-3 text-[var(--muted)]"
+          className={`w-4 h-4 text-[var(--muted)] flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
           aria-hidden
         >
           <polyline points="6 9 12 15 18 9" />
