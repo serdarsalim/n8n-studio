@@ -358,6 +358,47 @@ export default function Page() {
     [connections, onPickWorkflow],
   );
 
+  // Load a specific failed execution in-app: switch to its connection, load
+  // the workflow, then load that exact execution (not the latest). Closes the
+  // failures modal.
+  const openFailedExecution = useCallback(
+    async (
+      connectionId: string,
+      workflowId: string,
+      executionId: string,
+      workflowName: string,
+    ) => {
+      const conn = connections.connections.find((c) => c.id === connectionId);
+      if (!conn) return;
+      const next = { ...connections, activeId: connectionId };
+      setConnections(next);
+      writeConnections(next);
+      setShowFailures(false);
+      const creds = { n8nUrl: conn.n8nUrl, apiKey: conn.apiKey };
+      try {
+        const wf = await apiGetWorkflow(creds, workflowId);
+        setWorkflow(wf);
+        setModal(null);
+        setSelectedPayloadId(null);
+        setSelectedNodeName(null);
+        bumpTestCount(wf.id);
+        const exec = await apiGetExecution(creds, executionId);
+        setExecution(exec);
+        const extracted = extractTriggerInput(wf, exec);
+        if (extracted) {
+          setInputText(extracted.text);
+          setInputJson(extracted.json);
+        }
+        bumpExecAccess(wf.id, executionId);
+      } catch (e) {
+        setRunError(
+          `Could not load ${workflowName} execution ${executionId}: ${(e as Error).message}`,
+        );
+      }
+    },
+    [connections],
+  );
+
   const toggleTheme = () => {
     const next = dark ? "light" : "dark";
     setDark(next === "dark");
@@ -548,6 +589,7 @@ export default function Page() {
         onClose={() => setShowFailures(false)}
         failures={failures}
         showAllConnections={connections.connections.length > 1}
+        onOpenExecution={openFailedExecution}
       />
 
       <WorkflowModal

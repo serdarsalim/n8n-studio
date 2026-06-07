@@ -152,20 +152,24 @@ export function FailuresModal({
   onClose,
   failures,
   showAllConnections,
+  onOpenExecution,
 }: {
   open: boolean;
   onClose: () => void;
   failures: FailedExecution[];
   // When true, each row is labeled with its connection (multi-account setups).
   showAllConnections: boolean;
+  // Load the failed execution inside n8n studio (instead of opening n8n).
+  onOpenExecution: (
+    connectionId: string,
+    workflowId: string,
+    executionId: string,
+    workflowName: string,
+  ) => void;
 }) {
   const groups = useMemo(() => groupByWorkflow(failures), [failures]);
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={`Failed workflows · last 24h (${groups.length})`}
-    >
+    <Modal open={open} onClose={onClose} title="Failed executions in the last 24h">
       {groups.length === 0 ? (
         <p className="text-[13px] text-[var(--muted)]">
           Nothing failed in the last 24 hours.
@@ -173,7 +177,12 @@ export function FailuresModal({
       ) : (
         <ul className="flex flex-col gap-1">
           {groups.map((g) => (
-            <FailureRow key={g.key} group={g} showConnection={showAllConnections} />
+            <FailureRow
+              key={g.key}
+              group={g}
+              showConnection={showAllConnections}
+              onOpen={onOpenExecution}
+            />
           ))}
         </ul>
       )}
@@ -184,24 +193,31 @@ export function FailuresModal({
 function FailureRow({
   group,
   showConnection,
+  onOpen,
 }: {
   group: FailureGroup;
   showConnection: boolean;
+  onOpen: (
+    connectionId: string,
+    workflowId: string,
+    executionId: string,
+    workflowName: string,
+  ) => void;
 }) {
-  let origin = group.n8nUrl;
-  try {
-    origin = new URL(group.n8nUrl).origin;
-  } catch {
-    origin = group.n8nUrl.replace(/\/+$/, "");
-  }
-  const href = `${origin}/workflow/${group.workflowId}/executions/${group.latest.executionId}`;
   return (
     <li>
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center gap-3 px-3 py-2 rounded border border-[var(--border)] hover:border-[var(--n8n)] no-underline text-[var(--text)]"
+      <button
+        type="button"
+        onClick={() =>
+          onOpen(
+            group.connectionId,
+            group.workflowId,
+            group.latest.executionId,
+            group.workflowName,
+          )
+        }
+        title="Open this failed execution in n8n studio"
+        className="w-[70%] text-left flex items-center gap-3 px-3 py-2 rounded border border-[var(--border)] hover:border-[var(--n8n)] bg-transparent cursor-pointer text-[var(--text)]"
       >
         <span className="w-2 h-2 rounded-full bg-[var(--red-text)] flex-shrink-0" />
         <div className="flex-1 min-w-0">
@@ -212,8 +228,7 @@ function FailureRow({
             {" · "}last <RelativeTime iso={group.latest.startedAt} />
           </div>
         </div>
-        <ExternalIcon />
-      </a>
+      </button>
     </li>
   );
 }
@@ -277,21 +292,3 @@ function CloseIcon() {
   );
 }
 
-function ExternalIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="w-3.5 h-3.5 text-[var(--muted)] flex-shrink-0"
-      aria-hidden
-    >
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-      <polyline points="15 3 21 3 21 9" />
-      <line x1="10" y1="14" x2="21" y2="3" />
-    </svg>
-  );
-}
