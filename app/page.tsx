@@ -500,9 +500,6 @@ export default function Page() {
             label={verdict?.label ?? "Awaiting run"}
             onClick={() => workflow && setModal("executions")}
           />
-          {execution && (
-            <CopyExecutionButton execution={execution} />
-          )}
         </div>
         <div className="flex-1 basis-0 flex items-center justify-end">
           <HeaderMenu
@@ -529,9 +526,12 @@ export default function Page() {
                 className="flex-shrink-0 sticky top-0 self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2 relative"
                 style={{ width: graphPaneWidth }}
               >
-                {settings.n8nUrl && (
-                  <div className="absolute top-2 right-2 z-10">
-                    <OpenInN8nLink baseUrl={settings.n8nUrl} workflowId={workflow.id} />
+                {(settings.n8nUrl || execution) && (
+                  <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-1.5">
+                    {settings.n8nUrl && (
+                      <OpenInN8nLink baseUrl={settings.n8nUrl} workflowId={workflow.id} />
+                    )}
+                    {execution && <CopyExecutionButton execution={execution} />}
                   </div>
                 )}
                 <WorkflowGraph
@@ -828,7 +828,7 @@ function CopyExecutionButton({ execution }: { execution: N8nExecution }) {
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
           </svg>
-          <span>Copy</span>
+          <span>Copy execution</span>
         </>
       )}
     </button>
