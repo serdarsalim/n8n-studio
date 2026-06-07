@@ -463,14 +463,22 @@ export default function Page() {
                 className="flex-shrink-0 sticky top-0 self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2 relative"
                 style={{ width: graphPaneWidth }}
               >
-                {(execution || settings.n8nUrl) && (
-                  <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
-                    {execution && <CopyExecutionButton execution={execution} />}
-                    {settings.n8nUrl && (
-                      <OpenInN8nLink baseUrl={settings.n8nUrl} workflowId={workflow.id} />
-                    )}
-                  </div>
-                )}
+                <div className="flex items-center gap-2 mb-2 pl-1 pr-0.5">
+                  <h2
+                    className="flex-1 min-w-0 truncate text-[13px] font-semibold text-[var(--text)]"
+                    title={workflow.name}
+                  >
+                    {workflow.name}
+                  </h2>
+                  {(execution || settings.n8nUrl) && (
+                    <div className="flex-shrink-0 flex items-center gap-1.5">
+                      {execution && <CopyExecutionButton execution={execution} />}
+                      {settings.n8nUrl && (
+                        <OpenInN8nLink baseUrl={settings.n8nUrl} workflowId={workflow.id} />
+                      )}
+                    </div>
+                  )}
+                </div>
                 <WorkflowGraph
                   workflow={workflow}
                   checks={checks}
