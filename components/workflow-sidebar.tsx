@@ -74,17 +74,19 @@ export function WorkflowSidebar({
   const [counts, setCounts] = useState<Record<string, number>>({});
   // Which connections' workflows the list shows. This is a *display filter*
   // only — it never changes connections.activeId (the API target), which is
-  // set when a workflow is actually picked. Empty is treated as "all".
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // set when a workflow is actually picked. `null` = not loaded yet (show all
+  // as the default); `[]` = the user explicitly deselected everything (show
+  // nothing). Those two empty states must stay distinct.
+  const [selectedIds, setSelectedIds] = useState<string[] | null>(null);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const allIds = useMemo(
     () => connections.connections.map((c) => c.id),
     [connections.connections],
   );
-  // Fall back to "all" before the load effect runs (or if the set is empty)
-  // so the list never flashes empty.
-  const selForView = selectedIds.length ? selectedIds : allIds;
+  // Before the load effect runs, show all; afterwards honor the exact
+  // selection (including an explicit empty set).
+  const selForView = selectedIds ?? allIds;
   const allSelected = allIds.length > 0 && selForView.length === allIds.length;
   // Grouped (per-connection headers) whenever more than one connection shows.
   const multi = selForView.length !== 1;
@@ -185,8 +187,13 @@ export function WorkflowSidebar({
         if (Array.isArray(parsed)) stored = parsed.filter((x) => typeof x === "string");
       }
     } catch {}
-    const valid = (stored ?? allIds).filter((id) => allIds.includes(id));
-    setSelectedIds(valid.length ? valid : allIds);
+    // Absent (never persisted) → default to all. An explicit (possibly empty)
+    // stored array is honored as-is, just pruned to connections that exist.
+    if (stored === null) {
+      setSelectedIds(allIds);
+    } else {
+      setSelectedIds(stored.filter((id) => allIds.includes(id)));
+    }
   }, [allIds]);
 
   const visible = useMemo(() => {
@@ -292,15 +299,17 @@ export function WorkflowSidebar({
     } catch {}
   };
 
-  // Tick/untick one connection. Never lets the set go empty (the last one
-  // stays) so the list is never blank.
+  // Tick/untick one connection. Going to zero is allowed — the list just
+  // shows nothing until you pick a connection again.
   const toggleConnection = (id: string) => {
     const base = selForView;
     const next = base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
-    persistSelected(next.length ? next : [id]);
+    persistSelected(next);
   };
 
-  const selectAll = () => persistSelected(allIds);
+  // "Show all" is a master toggle: select everything, or clear it when all
+  // are already selected.
+  const toggleAll = () => persistSelected(allSelected ? [] : allIds);
 
   if (collapsed) {
     return (
@@ -363,7 +372,7 @@ export function WorkflowSidebar({
               selectedIds={selForView}
               allSelected={allSelected}
               onToggle={toggleConnection}
-              onSelectAll={selectAll}
+              onToggleAll={toggleAll}
             />
           </div>
           <button
@@ -480,7 +489,7 @@ export function WorkflowSidebar({
         })}
         {!loading && !error && workflows && visible.length === 0 && (
           <div className="text-[11px] text-[var(--muted)] px-2 py-3 text-center">
-            No workflows match.
+            {selForView.length === 0 ? "No connections selected." : "No workflows match."}
           </div>
         )}
       </div>
@@ -534,13 +543,13 @@ function ConnectionPicker({
   selectedIds,
   allSelected,
   onToggle,
-  onSelectAll,
+  onToggleAll,
 }: {
   connections: ConnectionsBlob;
   selectedIds: string[];
   allSelected: boolean;
   onToggle: (id: string) => void;
-  onSelectAll: () => void;
+  onToggleAll: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -558,9 +567,11 @@ function ConnectionPicker({
   const selSet = new Set(selectedIds);
   const label = allSelected
     ? "All connections"
-    : selectedIds.length === 1
-      ? (connections.connections.find((c) => c.id === selectedIds[0])?.name ?? "1 connection")
-      : `${selectedIds.length} of ${total} connections`;
+    : selectedIds.length === 0
+      ? "No connections"
+      : selectedIds.length === 1
+        ? (connections.connections.find((c) => c.id === selectedIds[0])?.name ?? "1 connection")
+        : `${selectedIds.length} of ${total} connections`;
 
   return (
     <div ref={ref} className="relative">
@@ -593,7 +604,7 @@ function ConnectionPicker({
             type="button"
             role="menuitemcheckbox"
             aria-checked={allSelected}
-            onClick={onSelectAll}
+            onClick={onToggleAll}
             className="w-full text-left flex items-center gap-2 px-3 py-[6px] text-[12px] cursor-pointer border-0 bg-transparent text-[var(--text)] hover:bg-[var(--panel-soft)]"
           >
             <CheckBox checked={allSelected} />
