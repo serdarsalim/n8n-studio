@@ -8,7 +8,7 @@ const COLLAPSED_KEY = "n8n-ft.sidebar.collapsed";
 const ACTIVE_KEY = "n8n-ft.sidebar.activeOnly";
 const SORT_KEY = "n8n-ft.sidebar.sort";
 const WIDTH_KEY = "n8n-ft.sidebar.width";
-const SHOW_ALL_KEY = "n8n-ft.sidebar.showAll";
+const SELECTED_KEY = "n8n-ft.sidebar.selectedConnections";
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 600;
 const DEFAULT_WIDTH = 260;
@@ -65,14 +65,27 @@ export function WorkflowSidebar({
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
   const [dragging, setDragging] = useState(false);
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const [showAll, setShowAll] = useState(false);
+  // Which connections' workflows the list shows. This is a *display filter*
+  // only — it never changes connections.activeId (the API target), which is
+  // set when a workflow is actually picked. Empty is treated as "all".
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  const allIds = useMemo(
+    () => connections.connections.map((c) => c.id),
+    [connections.connections],
+  );
+  // Fall back to "all" before the load effect runs (or if the set is empty)
+  // so the list never flashes empty.
+  const selForView = selectedIds.length ? selectedIds : allIds;
+  const allSelected = allIds.length > 0 && selForView.length === allIds.length;
+  // Grouped (per-connection headers) whenever more than one connection shows.
+  const multi = selForView.length !== 1;
 
   useEffect(() => {
     try {
       setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "1");
       setActiveOnly(localStorage.getItem(ACTIVE_KEY) !== "0");
-      setShowAll(localStorage.getItem(SHOW_ALL_KEY) === "1");
       const stored = localStorage.getItem(SORT_KEY) as SidebarSort | null;
       const valid = stored && SORT_OPTIONS.some((o) => o.value === stored);
       if (valid) {
@@ -152,15 +165,31 @@ export function WorkflowSidebar({
     setCounts(readTestCounts());
   }, [currentId]);
 
+  // Load the persisted selection and reconcile it against the current set of
+  // connections (drops ids for connections that no longer exist). Re-runs
+  // when connections change. Reads storage as the source of truth so a user
+  // toggle (which writes storage + state) is never clobbered by this effect.
+  useEffect(() => {
+    let stored: string[] | null = null;
+    try {
+      const raw = localStorage.getItem(SELECTED_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) stored = parsed.filter((x) => typeof x === "string");
+      }
+    } catch {}
+    const valid = (stored ?? allIds).filter((id) => allIds.includes(id));
+    setSelectedIds(valid.length ? valid : allIds);
+  }, [allIds]);
+
   const visible = useMemo(() => {
     if (!workflows) return [];
     const q = filter.toLowerCase();
-    // In single-connection mode, hide rows from other connections — the
-    // poller fetches everything (so failure-alerts has all data) but the
-    // sidebar's view is scoped to the active connection.
-    const scoped = showAll
-      ? workflows
-      : workflows.filter((w) => w.connectionId === connections.activeId);
+    // Show only rows from the selected connections — the poller fetches
+    // everything (so failure-alerts has all data) but the sidebar's view is
+    // scoped to whatever connections are ticked in the picker.
+    const sel = new Set(selForView);
+    const scoped = workflows.filter((w) => sel.has(w.connectionId));
     const filtered = scoped
       .filter((w) => (activeOnly ? w.active : true))
       .filter((w) => w.name.toLowerCase().includes(q));
@@ -190,38 +219,41 @@ export function WorkflowSidebar({
       }
     });
     return sorted;
-  }, [workflows, filter, activeOnly, sort, counts, lastRunAt, showAll, connections.activeId]);
+  }, [workflows, filter, activeOnly, sort, counts, lastRunAt, selForView]);
 
   // When showing all, group rows under their connection name (preserving
   // sort within each group). In single mode this is just one flat group.
   const grouped: Array<{ connectionId: string; connectionName: string; rows: TaggedWorkflow[] }> = useMemo(() => {
-    if (!showAll) {
+    if (!multi) {
       const only = visible[0];
       if (only) {
         return [{ connectionId: only.connectionId, connectionName: only.connectionName, rows: visible }];
       }
-      // No workflows for the active connection. If the active connection is
-      // the one that just failed, still render a header so the user sees
-      // *which* instance is down rather than an empty pane.
-      const active = connections.connections.find((c) => c.id === connections.activeId);
-      if (active && failedConnectionIds.includes(active.id)) {
-        return [{ connectionId: active.id, connectionName: active.name, rows: [] }];
+      // No workflows for the sole selected connection. If it's the one that
+      // just failed, still render a header so the user sees *which* instance
+      // is down rather than an empty pane.
+      const soleId = selForView[0];
+      const sole = connections.connections.find((c) => c.id === soleId);
+      if (sole && failedConnectionIds.includes(sole.id)) {
+        return [{ connectionId: sole.id, connectionName: sole.name, rows: [] }];
       }
       return [];
     }
-    // In show-all mode, group order follows the connection order configured
-    // in Settings — never the sort. Workflows shuffle within a group when
-    // the user changes sort, but the group headers themselves stay put so
-    // you don't lose your spot. Failed connections appear as empty groups so
-    // they're never silently dropped.
+    // In multi mode, group order follows the connection order configured in
+    // Settings — never the sort. Workflows shuffle within a group when the
+    // user changes sort, but the group headers themselves stay put so you
+    // don't lose your spot. Failed connections appear as empty groups so
+    // they're never silently dropped. Only selected connections are shown.
+    const sel = new Set(selForView);
     return connections.connections
+      .filter((c) => sel.has(c.id))
       .map((c) => ({
         connectionId: c.id,
         connectionName: c.name,
         rows: visible.filter((w) => w.connectionId === c.id),
       }))
       .filter((g) => g.rows.length > 0 || failedConnectionIds.includes(g.connectionId));
-  }, [visible, showAll, connections.connections, connections.activeId, failedConnectionIds]);
+  }, [visible, multi, selForView, connections.connections, failedConnectionIds]);
 
   const toggle = () => {
     const next = !collapsed;
@@ -246,16 +278,22 @@ export function WorkflowSidebar({
     } catch {}
   };
 
-  const handleSwitch = (id: string) => {
-    if (id === "__all__") {
-      setShowAll(true);
-      try { localStorage.setItem(SHOW_ALL_KEY, "1"); } catch {}
-    } else {
-      setShowAll(false);
-      try { localStorage.setItem(SHOW_ALL_KEY, "0"); } catch {}
-      onSwitchConnection(id);
-    }
+  const persistSelected = (ids: string[]) => {
+    setSelectedIds(ids);
+    try {
+      localStorage.setItem(SELECTED_KEY, JSON.stringify(ids));
+    } catch {}
   };
+
+  // Tick/untick one connection. Never lets the set go empty (the last one
+  // stays) so the list is never blank.
+  const toggleConnection = (id: string) => {
+    const base = selForView;
+    const next = base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
+    persistSelected(next.length ? next : [id]);
+  };
+
+  const selectAll = () => persistSelected(allIds);
 
   if (collapsed) {
     return (
@@ -306,8 +344,10 @@ export function WorkflowSidebar({
           <div className="flex-1 min-w-0">
             <ConnectionPicker
               connections={connections}
-              showAll={showAll}
-              onSwitch={handleSwitch}
+              selectedIds={selForView}
+              allSelected={allSelected}
+              onToggle={toggleConnection}
+              onSelectAll={selectAll}
             />
           </div>
           <button
@@ -368,7 +408,7 @@ export function WorkflowSidebar({
             {/* In single-connection mode the original UI didn't show a group
                 header. We only inject one when the connection is down so the
                 user knows *which* instance failed. */}
-            {(showAll || (!hasRows && failed)) && (
+            {(multi || (!hasRows && failed)) && (
               <div className="px-2 pt-2 pb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--red-text)]">
                 <span>{group.connectionName}</span>
                 {failed && (
@@ -389,18 +429,13 @@ export function WorkflowSidebar({
             {group.rows.map((wf) => {
               const key = `${wf.connectionId}:${wf.id}`;
               const selected =
-                wf.id === currentId &&
-                (!showAll || wf.connectionId === connections.activeId);
+                wf.id === currentId && wf.connectionId === connections.activeId;
               const status = statusOverrides?.[wf.id] ?? lastStatus[key];
               return (
                 <button
                   key={key}
                   type="button"
-                  onClick={() =>
-                    showAll
-                      ? onPickFromConnection(wf.connectionId, wf.id, wf.name)
-                      : onPick(wf.id, wf.name)
-                  }
+                  onClick={() => onPickFromConnection(wf.connectionId, wf.id, wf.name)}
                   title={wf.name}
                   className={`w-full text-left flex items-center gap-2 px-2 py-1.5 rounded mb-1 text-[12px] cursor-pointer border ${
                     selected
@@ -473,12 +508,16 @@ function ts(d?: string): number {
 
 function ConnectionPicker({
   connections,
-  showAll,
-  onSwitch,
+  selectedIds,
+  allSelected,
+  onToggle,
+  onSelectAll,
 }: {
   connections: ConnectionsBlob;
-  showAll: boolean;
-  onSwitch: (id: string) => void;
+  selectedIds: string[];
+  allSelected: boolean;
+  onToggle: (id: string) => void;
+  onSelectAll: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -492,17 +531,20 @@ function ConnectionPicker({
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  const active = connections.connections.find((c) => c.id === connections.activeId);
-  const label = showAll
-    ? `Show all (${connections.connections.length})`
-    : (active?.name ?? "No connection");
+  const total = connections.connections.length;
+  const selSet = new Set(selectedIds);
+  const label = allSelected
+    ? "All connections"
+    : selectedIds.length === 1
+      ? (connections.connections.find((c) => c.id === selectedIds[0])?.name ?? "1 connection")
+      : `${selectedIds.length} of ${total} connections`;
 
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title={showAll ? "Showing workflows from every connection" : active ? `Active: ${active.name}` : "No active connection"}
+        title={label}
         className="w-full flex items-center gap-1 px-1.5 py-1 rounded-md text-[14px] font-semibold text-[var(--text)] hover:bg-[var(--bg)] cursor-pointer bg-transparent border-0"
       >
         <span className="flex-1 truncate text-left">{label}</span>
@@ -522,41 +564,30 @@ function ConnectionPicker({
       {open && (
         <div
           role="menu"
-          className="absolute left-0 right-0 top-[36px] bg-[var(--panel)] border border-[var(--border)] rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.15)] z-[200] py-1"
+          className="absolute left-0 right-0 top-[34px] bg-[var(--panel)] border border-[var(--border)] rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.15)] z-[200] py-1"
         >
           <button
             type="button"
-            role="menuitemradio"
-            aria-checked={showAll}
-            onClick={() => {
-              onSwitch("__all__");
-              setOpen(false);
-            }}
-            className={`w-full text-left flex items-center gap-2 px-3 py-[6px] text-[12px] cursor-pointer border-0 bg-transparent ${
-              showAll ? "text-[var(--n8n)] font-medium" : "text-[var(--text)]"
-            } hover:bg-[var(--panel-soft)]`}
+            role="menuitemcheckbox"
+            aria-checked={allSelected}
+            onClick={onSelectAll}
+            className="w-full text-left flex items-center gap-2 px-3 py-[6px] text-[12px] cursor-pointer border-0 bg-transparent text-[var(--text)] hover:bg-[var(--panel-soft)]"
           >
-            <span className="w-[12px] text-center">{showAll ? "✓" : ""}</span>
-            <span className="truncate">Show all ({connections.connections.length})</span>
+            <CheckBox checked={allSelected} />
+            <span className="truncate font-medium">Show all ({total})</span>
           </button>
-          <div className="my-1 border-t border-[var(--border)]" />
           {connections.connections.map((c) => {
-            const selected = !showAll && c.id === connections.activeId;
+            const checked = selSet.has(c.id);
             return (
               <button
                 key={c.id}
                 type="button"
-                role="menuitemradio"
-                aria-checked={selected}
-                onClick={() => {
-                  onSwitch(c.id);
-                  setOpen(false);
-                }}
-                className={`w-full text-left flex items-center gap-2 px-3 py-[6px] text-[12px] cursor-pointer border-0 bg-transparent ${
-                  selected ? "text-[var(--n8n)] font-medium" : "text-[var(--text)]"
-                } hover:bg-[var(--panel-soft)]`}
+                role="menuitemcheckbox"
+                aria-checked={checked}
+                onClick={() => onToggle(c.id)}
+                className="w-full text-left flex items-center gap-2 px-3 py-[6px] text-[12px] cursor-pointer border-0 bg-transparent text-[var(--text)] hover:bg-[var(--panel-soft)]"
               >
-                <span className="w-[12px] text-center">{selected ? "✓" : ""}</span>
+                <CheckBox checked={checked} />
                 <span className="truncate">{c.name}</span>
               </button>
             );
@@ -564,6 +595,23 @@ function ConnectionPicker({
         </div>
       )}
     </div>
+  );
+}
+
+function CheckBox({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className={`w-3.5 h-3.5 rounded-[3px] border flex items-center justify-center flex-shrink-0 ${
+        checked
+          ? "bg-[var(--n8n)] border-[var(--n8n)] text-white"
+          : "border-[var(--border-strong)] text-transparent"
+      }`}
+      aria-hidden
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" className="w-2.5 h-2.5">
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+    </span>
   );
 }
 
