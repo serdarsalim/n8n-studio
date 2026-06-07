@@ -667,7 +667,7 @@ function SortMenu({
         onClick={() => setOpen((v) => !v)}
         title={`Sort: ${current?.label ?? value}`}
         aria-label="Sort workflows"
-        className="w-7 h-7 rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] flex items-center justify-center cursor-pointer flex-shrink-0"
+        className="w-7 h-7 rounded-md text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--bg)] flex items-center justify-center cursor-pointer flex-shrink-0"
       >
         <SortIcon />
       </button>
