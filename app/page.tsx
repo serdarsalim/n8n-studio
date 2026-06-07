@@ -407,7 +407,8 @@ export default function Page() {
           <CompactNode
             color="white"
             icon={<Image src="/n8n-icon.webp" alt="n8n" width={24} height={24} className="object-contain" />}
-            label={workflow?.name ?? "No workflow loaded"}
+            label={workflow ? "" : "No workflow loaded"}
+            ariaLabel={workflow?.name ?? "No workflow loaded"}
             onClick={() => setModal("workflow")}
             glowN8n
           />
@@ -781,12 +782,14 @@ function CompactNode({
   color,
   icon,
   label,
+  ariaLabel,
   onClick,
   glowN8n,
 }: {
   color: "blue" | "white" | "green" | "red" | "muted";
   icon: React.ReactNode;
   label: string;
+  ariaLabel?: string;
   onClick: () => void;
   glowN8n?: boolean;
 }) {
@@ -802,13 +805,13 @@ function CompactNode({
     <button
       type="button"
       onClick={onClick}
-      aria-label={label}
+      aria-label={ariaLabel ?? label}
       className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-[var(--bg)] cursor-pointer min-w-0 max-w-[260px]"
     >
       <span className={`w-9 h-9 rounded-lg border flex items-center justify-center flex-shrink-0 ${bg} ${ring}`}>
         {icon}
       </span>
-      <span className="text-[12px] font-medium truncate">{label}</span>
+      {label && <span className="text-[12px] font-medium truncate">{label}</span>}
     </button>
   );
 }
