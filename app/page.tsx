@@ -832,21 +832,25 @@ function CopyExecutionButton({ execution }: { execution: N8nExecution }) {
       className="h-7 px-2 text-[11px] font-medium rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--n8n)] flex items-center gap-1.5 cursor-pointer"
     >
       {copied ? (
-        <>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 text-[#059669]">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-          <span className="text-[#059669]">Copied</span>
-        </>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 flex-shrink-0 text-[#059669]">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
       ) : (
-        <>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
-          <span>Copy execution</span>
-        </>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 flex-shrink-0">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
       )}
+      {/* Reserve the full-label width so the button doesn't shrink when it
+          flips to the shorter "Copied" state. */}
+      <span className="grid">
+        <span className="col-start-1 row-start-1 invisible whitespace-nowrap" aria-hidden>
+          Copy execution
+        </span>
+        <span className={`col-start-1 row-start-1 whitespace-nowrap ${copied ? "text-[#059669]" : ""}`}>
+          {copied ? "Copied" : "Copy execution"}
+        </span>
+      </span>
     </button>
   );
 }
