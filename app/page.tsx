@@ -3,7 +3,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GearIcon, MoonIcon, SunIcon } from "@/components/icons";
-import { FailureAlerts } from "@/components/failure-alerts";
 import { NodeCheckList } from "@/components/node-check-list";
 import { WorkflowGraph } from "@/components/workflow-graph";
 import { ExecutionsModal } from "@/components/modals/executions-modal";
@@ -382,6 +381,7 @@ export default function Page() {
         lastStatus={poller.lastStatus}
         lastRunAt={poller.lastRunAt}
         failedConnectionIds={poller.failedConnectionIds}
+        failures={failures}
         loading={poller.loading}
         refreshing={poller.refreshing}
         error={poller.error}
@@ -413,14 +413,14 @@ export default function Page() {
           <CompactNode
             color="blue"
             icon={<Image src="/json-icon.png" alt="json" width={20} height={20} className="invert brightness-200" />}
-            label={inputText ? "Custom JSON input" : "No input loaded"}
+            label={inputText ? "Input" : "No input loaded"}
             onClick={() => setModal("input")}
           />
           <CompactArrow />
           <CompactNode
             color="white"
             icon={<Image src="/n8n-icon.webp" alt="n8n" width={24} height={24} className="object-contain" />}
-            label={workflow ? "" : "No workflow loaded"}
+            label={workflow ? "Workflow" : "No workflow loaded"}
             ariaLabel={workflow?.name ?? "No workflow loaded"}
             onClick={() => setModal("workflow")}
             glowN8n
@@ -456,11 +456,7 @@ export default function Page() {
             <CopyExecutionButton execution={execution} />
           )}
         </div>
-        <div className="flex-1 basis-0 flex items-center justify-end gap-2">
-          <FailureAlerts
-            failures={failures}
-            showAllConnections={connections.connections.length > 1}
-          />
+        <div className="flex-1 basis-0 flex items-center justify-end">
           <HeaderMenu dark={dark} onToggleTheme={toggleTheme} />
         </div>
       </header>

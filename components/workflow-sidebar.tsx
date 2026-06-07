@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppSettings, ConnectionsBlob } from "@/lib/types";
 import { readPrefs, readTestCounts, type SidebarSort } from "@/lib/client";
 import type { RefreshResult, TaggedWorkflow } from "@/lib/use-n8n-poller";
+import { FailureAlerts, type FailedExecution } from "@/components/failure-alerts";
 
 const COLLAPSED_KEY = "n8n-ft.sidebar.collapsed";
 const ACTIVE_KEY = "n8n-ft.sidebar.activeOnly";
@@ -33,6 +34,7 @@ export function WorkflowSidebar({
   lastStatus,
   lastRunAt,
   failedConnectionIds,
+  failures,
   loading,
   refreshing,
   error,
@@ -53,6 +55,7 @@ export function WorkflowSidebar({
   lastStatus: Record<string, string>;
   lastRunAt: Record<string, string>;
   failedConnectionIds: string[];
+  failures: FailedExecution[];
   loading: boolean;
   refreshing: boolean;
   error: string | null;
@@ -376,6 +379,16 @@ export function WorkflowSidebar({
           onChange={changeSort}
           activeOnly={activeOnly}
           onToggleActive={toggleActive}
+        />
+      </div>
+
+      {/* Failed-runs banner — sits as the first item below search. It's a
+          cross-connection summary (not the loaded workflow), and dismissable
+          via its own X. Renders nothing when there's nothing to report. */}
+      <div className="px-2 pt-2 empty:hidden [&>button]:w-full [&>button]:justify-start">
+        <FailureAlerts
+          failures={failures}
+          showAllConnections={connections.connections.length > 1}
         />
       </div>
 
