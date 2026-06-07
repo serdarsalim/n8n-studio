@@ -418,8 +418,7 @@ export function WorkflowSidebar({
               Welcome to n8n studio 👋
             </div>
             <div className="text-[12px] text-[var(--muted)] leading-relaxed mb-4">
-              Connect an n8n instance — paste its URL and API key — to load and
-              test your workflows.
+              Add your n8n URL and API key to load and test your workflows.
             </div>
             <Link
               href="/settings"
@@ -498,6 +497,16 @@ export function WorkflowSidebar({
             {selForView.length === 0 ? "No connections selected." : "No workflows match."}
           </div>
         )}
+      </div>
+
+      <div className="flex-shrink-0 border-t border-[var(--border)] px-4 py-2 flex items-center gap-2 text-[10px] text-[var(--muted-2)]">
+        <Link href="/privacy" className="hover:text-[var(--text)] no-underline">
+          Privacy
+        </Link>
+        <span aria-hidden>·</span>
+        <Link href="/terms" className="hover:text-[var(--text)] no-underline">
+          Terms
+        </Link>
       </div>
       {/* Resize handle: 4px-wide invisible strip on the right edge.
           Click-and-drag adjusts sidebar width; the surrounding `aside`

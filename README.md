@@ -23,7 +23,8 @@ Open `http://localhost:3000`, hit the gear icon, paste your n8n URL + API key. P
 ## Your data stays on your machine
 
 - **No env vars, no backend, no database.** Your n8n URL and API key live in your browser's `localStorage` and never leave the machine running the tool.
-- **No telemetry.** No analytics, no error reporting, nothing phones home.
+- **Your data never reaches us.** No account, no database, no error reporting. Your keys, workflows, and execution data stay in your browser.
+- **Anonymous analytics only.** The hosted version uses Vercel's cookieless, privacy-friendly analytics for page-view counts. No personal data, no cross-site tracking. Self-host to opt out of even that.
 - **Self-hosted by default.** The Next.js API routes only proxy from your browser to your own n8n instance, using the URL and key you typed in. They exist to keep your API key out of the browser network tab and avoid CORS — not to ship anything anywhere.
 
 ## Stack
