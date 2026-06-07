@@ -389,12 +389,7 @@ export default function Page() {
       />
       <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--panel)] overflow-hidden md:rounded-xl md:border md:border-[var(--border)]">
       <header className="flex-shrink-0 h-14 px-4 bg-[var(--panel)] flex items-center gap-4 z-20">
-        <div className="flex-1 basis-0 flex items-center min-w-0">
-          <FailureAlerts
-            failures={failures}
-            showAllConnections={connections.connections.length > 1}
-          />
-        </div>
+        <div className="flex-1 basis-0 min-w-0" />
         <div className="flex-none flex items-center justify-center gap-1 min-w-0">
           <CompactNode
             color="blue"
@@ -444,7 +439,11 @@ export default function Page() {
             onClick={() => workflow && setModal("executions")}
           />
         </div>
-        <div className="flex-1 basis-0 flex items-center justify-end">
+        <div className="flex-1 basis-0 flex items-center justify-end gap-2">
+          <FailureAlerts
+            failures={failures}
+            showAllConnections={connections.connections.length > 1}
+          />
           <HeaderMenu dark={dark} onToggleTheme={toggleTheme} />
         </div>
       </header>
