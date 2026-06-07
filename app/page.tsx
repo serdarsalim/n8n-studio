@@ -410,9 +410,6 @@ export default function Page() {
             onClick={() => setModal("workflow")}
             glowN8n
           />
-          {workflow && settings.n8nUrl && (
-            <OpenInN8nLink baseUrl={settings.n8nUrl} workflowId={workflow.id} />
-          )}
           <CompactArrow />
           <CompactNode
             color={
@@ -465,9 +462,12 @@ export default function Page() {
                 className="flex-shrink-0 sticky top-[60px] self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2 relative"
                 style={{ width: graphPaneWidth }}
               >
-                {execution && (
-                  <div className="absolute top-2 right-2 z-10">
-                    <CopyExecutionButton execution={execution} />
+                {(execution || settings.n8nUrl) && (
+                  <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
+                    {execution && <CopyExecutionButton execution={execution} />}
+                    {settings.n8nUrl && (
+                      <OpenInN8nLink baseUrl={settings.n8nUrl} workflowId={workflow.id} />
+                    )}
                   </div>
                 )}
                 <WorkflowGraph
@@ -584,7 +584,7 @@ function OpenInN8nLink({ baseUrl, workflowId }: { baseUrl: string; workflowId: s
       rel="noopener noreferrer"
       title="Open this workflow in n8n"
       aria-label="Open this workflow in n8n"
-      className="w-8 h-8 rounded-md text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--bg)] flex items-center justify-center cursor-pointer no-underline flex-shrink-0"
+      className="h-7 px-2 text-[11px] font-medium rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--n8n)] flex items-center gap-1.5 cursor-pointer no-underline flex-shrink-0"
     >
       <svg
         viewBox="0 0 24 24"
@@ -593,13 +593,14 @@ function OpenInN8nLink({ baseUrl, workflowId }: { baseUrl: string; workflowId: s
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="w-3.5 h-3.5"
+        className="w-3 h-3"
         aria-hidden
       >
         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
         <polyline points="15 3 21 3 21 9" />
         <line x1="10" y1="14" x2="21" y2="3" />
       </svg>
+      <span>Open in n8n</span>
     </a>
   );
 }
