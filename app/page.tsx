@@ -388,7 +388,7 @@ export default function Page() {
         onRefresh={poller.refresh}
       />
       <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--panel)] overflow-hidden md:rounded-xl md:border md:border-[var(--border)]">
-      <header className="flex-shrink-0 h-14 px-4 bg-[var(--panel)] border-b border-[var(--border)] flex items-center gap-4 z-20">
+      <header className="flex-shrink-0 h-14 px-4 bg-[var(--panel)] flex items-center gap-4 z-20">
         <div className="flex-1 flex items-center justify-center gap-1 min-w-0">
           <CompactNode
             color="blue"
