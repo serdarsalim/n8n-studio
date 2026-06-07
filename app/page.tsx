@@ -599,6 +599,7 @@ export default function Page() {
         connections={connections}
         onPickFromConnection={onPickFromConnection}
         lastRunAt={poller.lastRunAt}
+        failures={failures}
       />
       <InputModal
         open={modal === "input"}

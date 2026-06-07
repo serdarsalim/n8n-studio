@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ConnectionsBlob, N8nWorkflowSummary } from "@/lib/types";
-import { apiListWorkflows, readTestCounts } from "@/lib/client";
+import { apiListWorkflows } from "@/lib/client";
+import type { FailedExecution } from "@/components/failure-alerts";
 import { Modal } from "./modal";
 
-type Sort = "tested" | "name" | "updated" | "created";
+type Sort = "failed" | "name" | "updated" | "created";
 type ActiveFilter = "all" | "active" | "inactive";
 
 export function WorkflowModal({
@@ -13,6 +14,7 @@ export function WorkflowModal({
   connections,
   onPickFromConnection,
   lastRunAt,
+  failures,
 }: {
   open: boolean;
   onClose: () => void;
@@ -20,6 +22,8 @@ export function WorkflowModal({
   onPickFromConnection: (connectionId: string, workflowId: string, name: string) => void;
   // Last-run timestamps from the poller, keyed `${connectionId}:${workflowId}`.
   lastRunAt: Record<string, string>;
+  // Recent failed executions across all instances.
+  failures: FailedExecution[];
 }) {
   // Which n8n instance the workflow list is showing. Defaults to the active
   // connection each time the modal opens.
@@ -28,9 +32,18 @@ export function WorkflowModal({
   const [workflows, setWorkflows] = useState<N8nWorkflowSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<Sort>("tested");
+  const [sort, setSort] = useState<Sort>("failed");
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>("active");
-  const [counts, setCounts] = useState<Record<string, number>>({});
+
+  // Failed-execution counts per workflow, keyed `${connectionId}:${workflowId}`.
+  const failedCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const f of failures) {
+      const k = `${f.connectionId}:${f.workflowId}`;
+      m[k] = (m[k] ?? 0) + 1;
+    }
+    return m;
+  }, [failures]);
 
   const conn = useMemo(() => {
     const list = connections.connections;
@@ -52,7 +65,6 @@ export function WorkflowModal({
   // Fetch the selected instance's workflows (re-runs when you switch instance).
   useEffect(() => {
     if (!open) return;
-    setCounts(readTestCounts());
     setWorkflows(null);
     if (!conn) {
       setError("No connections configured. Add one in Settings.");
@@ -77,13 +89,14 @@ export function WorkflowModal({
       .filter((w) =>
         activeFilter === "all" ? true : activeFilter === "active" ? w.active : !w.active,
       );
+    const cid = conn?.id;
     const sorted = [...filtered];
     sorted.sort((a, b) => {
       switch (sort) {
-        case "tested": {
-          const ca = counts[a.id] ?? 0;
-          const cb = counts[b.id] ?? 0;
-          if (cb !== ca) return cb - ca;
+        case "failed": {
+          const fa = cid ? (failedCounts[`${cid}:${a.id}`] ?? 0) : 0;
+          const fb = cid ? (failedCounts[`${cid}:${b.id}`] ?? 0) : 0;
+          if (fb !== fa) return fb - fa;
           return a.name.localeCompare(b.name);
         }
         case "name":
@@ -95,7 +108,7 @@ export function WorkflowModal({
       }
     });
     return sorted;
-  }, [workflows, filter, sort, activeFilter, counts]);
+  }, [workflows, filter, sort, activeFilter, failedCounts, conn]);
 
   return (
     <Modal open={open} onClose={onClose} title="Load workflow to test" wide>
@@ -156,7 +169,7 @@ export function WorkflowModal({
                 className="flex-1 min-w-[180px] px-[10px] py-[8px] text-[13px] rounded-[5px] border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--text)] outline-none focus:border-[var(--n8n)]"
               />
               <Select value={sort} onChange={(v) => setSort(v as Sort)}>
-                <option value="tested">Most tested</option>
+                <option value="failed">Most failed</option>
                 <option value="name">Name (A→Z)</option>
                 <option value="updated">Recently updated</option>
                 <option value="created">Recently created</option>
@@ -174,7 +187,7 @@ export function WorkflowModal({
           )}
           <div className="flex-1 min-h-0 overflow-y-auto thin-scroll">
             {visible.map((wf) => {
-              const count = counts[wf.id] ?? 0;
+              const failed = conn ? (failedCounts[`${conn.id}:${wf.id}`] ?? 0) : 0;
               return (
                 <button
                   key={wf.id}
@@ -192,9 +205,9 @@ export function WorkflowModal({
                       {wf.updatedAt && <> | Updated {fmtDate(wf.updatedAt)}</>}
                     </div>
                   </div>
-                  {count > 0 && (
-                    <span className="text-[11px] text-[var(--muted)] font-mono whitespace-nowrap">
-                      {count}× tested
+                  {failed > 0 && (
+                    <span className="text-[11px] font-mono whitespace-nowrap px-1.5 py-0.5 rounded-full bg-[var(--red-bg)] text-[var(--red-text)]">
+                      {failed}× failed
                     </span>
                   )}
                   <span className="text-[var(--muted-2)] text-[14px]">›</span>
