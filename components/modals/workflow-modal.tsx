@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AppSettings, N8nWorkflowSummary } from "@/lib/types";
+import type { ConnectionsBlob, N8nWorkflowSummary } from "@/lib/types";
 import { apiListWorkflows, readTestCounts } from "@/lib/client";
 import { Modal } from "./modal";
 
@@ -10,14 +10,17 @@ type ActiveFilter = "all" | "active" | "inactive";
 export function WorkflowModal({
   open,
   onClose,
-  settings,
-  onPick,
+  connections,
+  onPickFromConnection,
 }: {
   open: boolean;
   onClose: () => void;
-  settings: AppSettings;
-  onPick: (id: string, name: string) => void;
+  connections: ConnectionsBlob;
+  onPickFromConnection: (connectionId: string, workflowId: string, name: string) => void;
 }) {
+  // Which n8n instance the workflow list is showing. Defaults to the active
+  // connection each time the modal opens.
+  const [selectedConnId, setSelectedConnId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [workflows, setWorkflows] = useState<N8nWorkflowSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -26,20 +29,43 @@ export function WorkflowModal({
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>("active");
   const [counts, setCounts] = useState<Record<string, number>>({});
 
+  const conn = useMemo(() => {
+    const list = connections.connections;
+    return (
+      list.find((c) => c.id === selectedConnId) ??
+      list.find((c) => c.id === connections.activeId) ??
+      list[0] ??
+      null
+    );
+  }, [connections, selectedConnId]);
+
+  // On open, point the modal at the active connection.
+  useEffect(() => {
+    if (open) {
+      setSelectedConnId(connections.activeId ?? connections.connections[0]?.id ?? null);
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch the selected instance's workflows (re-runs when you switch instance).
   useEffect(() => {
     if (!open) return;
     setCounts(readTestCounts());
-    if (!settings.n8nUrl || !settings.apiKey) {
-      setError("Set your n8n URL and API key in Settings first.");
+    setWorkflows(null);
+    if (!conn) {
+      setError("No connections configured. Add one in Settings.");
+      return;
+    }
+    if (!conn.n8nUrl || !conn.apiKey) {
+      setError("This connection is missing its URL or API key.");
       return;
     }
     setLoading(true);
     setError(null);
-    apiListWorkflows(settings)
+    apiListWorkflows({ n8nUrl: conn.n8nUrl, apiKey: conn.apiKey })
       .then((wf) => setWorkflows(wf))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [open, settings]);
+  }, [open, conn]);
 
   const visible = useMemo(() => {
     if (!workflows) return [];
@@ -70,68 +96,111 @@ export function WorkflowModal({
 
   return (
     <Modal open={open} onClose={onClose} title="Load workflow to test" wide>
-      {error && (
-        <div className="text-[13px] text-[var(--red-text)] bg-[var(--red-bg)] px-3 py-2 rounded mb-3">
-          {error}
-        </div>
-      )}
-      {!error && (
-        <div className="flex flex-wrap gap-2 mb-3 items-center">
-          <input
-            type="text"
-            placeholder={loading ? "Loading…" : "Filter by name…"}
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            disabled={loading || !workflows}
-            className="flex-1 min-w-[180px] px-[10px] py-[8px] text-[13px] rounded-[5px] border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--text)] outline-none focus:border-[var(--n8n)]"
-          />
-          <Select value={sort} onChange={(v) => setSort(v as Sort)}>
-            <option value="tested">Most tested</option>
-            <option value="name">Name (A→Z)</option>
-            <option value="updated">Recently updated</option>
-            <option value="created">Recently created</option>
-          </Select>
-          <FunnelMenu
-            value={activeFilter}
-            onChange={(v) => setActiveFilter(v as ActiveFilter)}
-            options={[
-              { value: "active", label: "Active only" },
-              { value: "inactive", label: "Inactive only" },
-              { value: "all", label: "All workflows" },
-            ]}
-          />
-        </div>
-      )}
-      <div className="h-[420px] min-h-[200px] overflow-y-auto">
-        {visible.map((wf) => {
-          const count = counts[wf.id] ?? 0;
-          return (
-            <button
-              key={wf.id}
-              type="button"
-              onClick={() => onPick(wf.id, wf.name)}
-              className="w-full text-left flex items-center gap-3 px-3 py-[10px] rounded-md border border-[var(--border)] mb-[6px] cursor-pointer bg-transparent hover:border-[var(--n8n)] hover:bg-[color-mix(in_srgb,var(--n8n)_8%,transparent)] last:mb-0"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-[13px] truncate">{wf.name}</div>
-                <div className="text-[11px] text-[var(--muted)] font-mono truncate">
-                  {fmtMeta(wf)}
-                </div>
-              </div>
-              {count > 0 && (
-                <span className="text-[11px] text-[var(--muted)] font-mono whitespace-nowrap">
-                  {count}× tested
-                </span>
-              )}
-              <span className="text-[var(--muted-2)] text-[14px]">›</span>
-            </button>
-          );
-        })}
-        {!loading && !error && workflows && visible.length === 0 && (
-          <div className="text-[13px] text-[var(--muted)] px-2 py-4 text-center">
-            No workflows match.
+      <div className="flex gap-3 h-[468px] min-h-[200px]">
+        {/* Instances sidebar — every loaded n8n connection. Switching scopes
+            the workflow list to that instance. */}
+        <aside className="w-[170px] flex-shrink-0 overflow-y-auto thin-scroll border-r border-[var(--border)] pr-1.5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--muted)] px-2 pt-1 pb-1.5">
+            n8n instances
           </div>
-        )}
+          {connections.connections.length === 0 && (
+            <div className="text-[11px] text-[var(--muted)] px-2 py-2 italic">
+              None configured.
+            </div>
+          )}
+          {connections.connections.map((c) => {
+            const selected = conn?.id === c.id;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setSelectedConnId(c.id)}
+                title={c.name}
+                className={`w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md mb-0.5 text-[12px] cursor-pointer border ${
+                  selected
+                    ? "bg-[color-mix(in_srgb,var(--n8n)_15%,transparent)] border-[var(--n8n)] text-[var(--text)] font-semibold"
+                    : "bg-transparent border-transparent text-[var(--text)] hover:bg-[var(--panel-soft)] hover:border-[var(--border)]"
+                }`}
+              >
+                <span className="flex-1 truncate">{c.name}</span>
+                {c.id === connections.activeId && (
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-[var(--n8n)] flex-shrink-0"
+                    aria-hidden
+                    title="Active connection"
+                  />
+                )}
+              </button>
+            );
+          })}
+        </aside>
+
+        {/* Right column: filter row + the selected instance's workflow list. */}
+        <div className="flex-1 min-w-0 flex flex-col">
+          {error && (
+            <div className="text-[13px] text-[var(--red-text)] bg-[var(--red-bg)] px-3 py-2 rounded mb-3">
+              {error}
+            </div>
+          )}
+          {!error && (
+            <div className="flex flex-wrap gap-2 mb-3 items-center">
+              <input
+                type="text"
+                placeholder={loading ? "Loading…" : "Filter by name…"}
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                disabled={loading || !workflows}
+                className="flex-1 min-w-[180px] px-[10px] py-[8px] text-[13px] rounded-[5px] border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--text)] outline-none focus:border-[var(--n8n)]"
+              />
+              <Select value={sort} onChange={(v) => setSort(v as Sort)}>
+                <option value="tested">Most tested</option>
+                <option value="name">Name (A→Z)</option>
+                <option value="updated">Recently updated</option>
+                <option value="created">Recently created</option>
+              </Select>
+              <FunnelMenu
+                value={activeFilter}
+                onChange={(v) => setActiveFilter(v as ActiveFilter)}
+                options={[
+                  { value: "active", label: "Active only" },
+                  { value: "inactive", label: "Inactive only" },
+                  { value: "all", label: "All workflows" },
+                ]}
+              />
+            </div>
+          )}
+          <div className="flex-1 min-h-0 overflow-y-auto thin-scroll">
+            {visible.map((wf) => {
+              const count = counts[wf.id] ?? 0;
+              return (
+                <button
+                  key={wf.id}
+                  type="button"
+                  onClick={() => conn && onPickFromConnection(conn.id, wf.id, wf.name)}
+                  className="w-full text-left flex items-center gap-3 px-3 py-[10px] rounded-md border border-[var(--border)] mb-[6px] cursor-pointer bg-transparent hover:border-[var(--n8n)] hover:bg-[color-mix(in_srgb,var(--n8n)_8%,transparent)] last:mb-0"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-[13px] truncate">{wf.name}</div>
+                    <div className="text-[11px] text-[var(--muted)] font-mono truncate">
+                      {fmtMeta(wf)}
+                    </div>
+                  </div>
+                  {count > 0 && (
+                    <span className="text-[11px] text-[var(--muted)] font-mono whitespace-nowrap">
+                      {count}× tested
+                    </span>
+                  )}
+                  <span className="text-[var(--muted-2)] text-[14px]">›</span>
+                </button>
+              );
+            })}
+            {!loading && !error && workflows && visible.length === 0 && (
+              <div className="text-[13px] text-[var(--muted)] px-2 py-4 text-center">
+                No workflows match.
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </Modal>
   );

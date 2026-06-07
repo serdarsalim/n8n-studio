@@ -429,6 +429,7 @@ export default function Page() {
         failedConnectionIds={poller.failedConnectionIds}
         failures={failures}
         onOpenFailures={() => setShowFailures(true)}
+        onOpenWorkflowModal={() => setModal("workflow")}
         loading={poller.loading}
         refreshing={poller.refreshing}
         error={poller.error}
@@ -595,8 +596,8 @@ export default function Page() {
       <WorkflowModal
         open={modal === "workflow"}
         onClose={() => setModal(null)}
-        settings={settings}
-        onPick={onPickWorkflow}
+        connections={connections}
+        onPickFromConnection={onPickFromConnection}
       />
       <InputModal
         open={modal === "input"}
