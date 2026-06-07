@@ -68,7 +68,6 @@ export function WorkflowSidebar({
   const [collapsed, setCollapsed] = useState(false);
   const [activeOnly, setActiveOnly] = useState(true);
   const [sort, setSort] = useState<SidebarSort>("updated");
-  const [filter, setFilter] = useState("");
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
   const [dragging, setDragging] = useState(false);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -198,15 +197,12 @@ export function WorkflowSidebar({
 
   const visible = useMemo(() => {
     if (!workflows) return [];
-    const q = filter.toLowerCase();
     // Show only rows from the selected connections — the poller fetches
     // everything (so failure-alerts has all data) but the sidebar's view is
     // scoped to whatever connections are ticked in the picker.
     const sel = new Set(selForView);
     const scoped = workflows.filter((w) => sel.has(w.connectionId));
-    const filtered = scoped
-      .filter((w) => (activeOnly ? w.active : true))
-      .filter((w) => w.name.toLowerCase().includes(q));
+    const filtered = scoped.filter((w) => (activeOnly ? w.active : true));
     const sorted = [...filtered].sort((a, b) => {
       switch (sort) {
         case "usage": {
@@ -233,7 +229,7 @@ export function WorkflowSidebar({
       }
     });
     return sorted;
-  }, [workflows, filter, activeOnly, sort, counts, lastRunAt, selForView]);
+  }, [workflows, activeOnly, sort, counts, lastRunAt, selForView]);
 
   // When showing all, group rows under their connection name (preserving
   // sort within each group). In single mode this is just one flat group.
@@ -385,26 +381,16 @@ export function WorkflowSidebar({
           >
             <RefreshIcon spinning={loading || refreshing} />
           </button>
+          <SortMenu
+            value={sort}
+            onChange={changeSort}
+            activeOnly={activeOnly}
+            onToggleActive={toggleActive}
+          />
         </div>
       )}
 
-      <div className="px-2 pt-2 flex items-center gap-1">
-        <input
-          type="text"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder={loading ? "Loading…" : "Search"}
-          className="flex-1 min-w-0 px-2 py-1 text-[12px] rounded border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--text)] outline-none focus:border-[var(--n8n)]"
-        />
-        <SortMenu
-          value={sort}
-          onChange={changeSort}
-          activeOnly={activeOnly}
-          onToggleActive={toggleActive}
-        />
-      </div>
-
-      {/* Failed-runs banner — sits as the first item below search. It's a
+      {/* Failed-runs banner — sits as the first item below the controls. It's a
           cross-connection summary (not the loaded workflow), and dismissable
           via its own X. Renders nothing when there's nothing to report. */}
       <div className="px-2 pt-2 empty:hidden [&>button]:w-full [&>button]:justify-start">
