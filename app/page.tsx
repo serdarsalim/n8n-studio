@@ -596,10 +596,11 @@ export default function Page() {
       <WorkflowModal
         open={modal === "workflow"}
         onClose={() => setModal(null)}
-        connections={connections}
-        onPickFromConnection={onPickFromConnection}
-        lastRunAt={poller.lastRunAt}
+        workflows={poller.workflows}
+        executions={poller.executions}
         failures={failures}
+        lastRunAt={poller.lastRunAt}
+        onPickFromConnection={onPickFromConnection}
       />
       <InputModal
         open={modal === "input"}

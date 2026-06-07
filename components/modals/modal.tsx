@@ -8,6 +8,7 @@ export function Modal({
   children,
   footer,
   wide,
+  width,
 }: {
   open: boolean;
   onClose: () => void;
@@ -15,6 +16,8 @@ export function Modal({
   children: React.ReactNode;
   footer?: React.ReactNode;
   wide?: boolean;
+  // Explicit pixel width override (takes precedence over `wide`).
+  width?: number;
 }) {
   // Drag-to-move state. Offset is applied via CSS transform on the card so
   // we never touch the document layout while dragging.
@@ -82,7 +85,7 @@ export function Modal({
       <div
         className="mx-auto bg-[var(--panel)] rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.25)] overflow-hidden max-w-[calc(100vw-40px)] flex flex-col resize"
         style={{
-          width: wide ? 920 : 560,
+          width: width ?? (wide ? 920 : 560),
           // Wide modals get a fixed starting height so lists inside scroll
           // rather than the modal growing with content. Users can still
           // drag the bottom-right corner (CSS `resize`) to enlarge.

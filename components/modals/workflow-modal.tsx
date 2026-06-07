@@ -1,41 +1,69 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ConnectionsBlob, N8nWorkflowSummary } from "@/lib/types";
-import { apiListWorkflows } from "@/lib/client";
+import type { TaggedWorkflow, TaggedExecution } from "@/lib/use-n8n-poller";
 import type { FailedExecution } from "@/components/failure-alerts";
 import { Modal } from "./modal";
 
-type Sort = "failed" | "name" | "updated" | "created";
+type SortKey =
+  | "instance"
+  | "name"
+  | "runs"
+  | "failed"
+  | "lastrun"
+  | "updated"
+  | "created";
 type ActiveFilter = "all" | "active" | "inactive";
+
+// Name/instance read more naturally A→Z; everything else (counts, dates) you
+// almost always want biggest/newest first.
+function defaultDir(key: SortKey): "asc" | "desc" {
+  return key === "name" || key === "instance" ? "asc" : "desc";
+}
 
 export function WorkflowModal({
   open,
   onClose,
-  connections,
-  onPickFromConnection,
-  lastRunAt,
+  workflows,
+  executions,
   failures,
+  lastRunAt,
+  onPickFromConnection,
 }: {
   open: boolean;
   onClose: () => void;
-  connections: ConnectionsBlob;
-  onPickFromConnection: (connectionId: string, workflowId: string, name: string) => void;
-  // Last-run timestamps from the poller, keyed `${connectionId}:${workflowId}`.
-  lastRunAt: Record<string, string>;
+  // All instances' workflows from the poller, tagged with their connection.
+  workflows: TaggedWorkflow[] | null;
+  // Recent executions across all instances — drives the run count.
+  executions: TaggedExecution[];
   // Recent failed executions across all instances.
   failures: FailedExecution[];
+  // Last-run timestamps, keyed `${connectionId}:${workflowId}`.
+  lastRunAt: Record<string, string>;
+  onPickFromConnection: (connectionId: string, workflowId: string, name: string) => void;
 }) {
-  // Which n8n instance the workflow list is showing. Defaults to the active
-  // connection each time the modal opens.
-  const [selectedConnId, setSelectedConnId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [workflows, setWorkflows] = useState<N8nWorkflowSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<Sort>("failed");
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>("active");
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "failed",
+    dir: "desc",
+  });
 
-  // Failed-execution counts per workflow, keyed `${connectionId}:${workflowId}`.
+  // Reset the name filter each time the modal opens.
+  useEffect(() => {
+    if (open) setFilter("");
+  }, [open]);
+
+  // Per-workflow counts, keyed `${connectionId}:${workflowId}`.
+  const runCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const e of executions) {
+      if (!e.workflowId) continue;
+      const k = `${e.connectionId}:${e.workflowId}`;
+      m[k] = (m[k] ?? 0) + 1;
+    }
+    return m;
+  }, [executions]);
+
   const failedCounts = useMemo(() => {
     const m: Record<string, number> = {};
     for (const f of failures) {
@@ -45,204 +73,177 @@ export function WorkflowModal({
     return m;
   }, [failures]);
 
-  const conn = useMemo(() => {
-    const list = connections.connections;
-    return (
-      list.find((c) => c.id === selectedConnId) ??
-      list.find((c) => c.id === connections.activeId) ??
-      list[0] ??
-      null
-    );
-  }, [connections, selectedConnId]);
-
-  // On open, point the modal at the active connection.
-  useEffect(() => {
-    if (open) {
-      setSelectedConnId(connections.activeId ?? connections.connections[0]?.id ?? null);
-    }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Fetch the selected instance's workflows (re-runs when you switch instance).
-  useEffect(() => {
-    if (!open) return;
-    setWorkflows(null);
-    if (!conn) {
-      setError("No connections configured. Add one in Settings.");
-      return;
-    }
-    if (!conn.n8nUrl || !conn.apiKey) {
-      setError("This connection is missing its URL or API key.");
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    apiListWorkflows({ n8nUrl: conn.n8nUrl, apiKey: conn.apiKey })
-      .then((wf) => setWorkflows(wf))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [open, conn]);
-
   const visible = useMemo(() => {
     if (!workflows) return [];
+    const q = filter.toLowerCase();
     const filtered = workflows
-      .filter((w) => w.name.toLowerCase().includes(filter.toLowerCase()))
+      .filter((w) => w.name.toLowerCase().includes(q))
       .filter((w) =>
         activeFilter === "all" ? true : activeFilter === "active" ? w.active : !w.active,
       );
-    const cid = conn?.id;
-    const sorted = [...filtered];
-    sorted.sort((a, b) => {
-      switch (sort) {
-        case "failed": {
-          const fa = cid ? (failedCounts[`${cid}:${a.id}`] ?? 0) : 0;
-          const fb = cid ? (failedCounts[`${cid}:${b.id}`] ?? 0) : 0;
-          if (fb !== fa) return fb - fa;
-          return a.name.localeCompare(b.name);
-        }
+
+    const dir = sort.dir === "asc" ? 1 : -1;
+    const val = (w: TaggedWorkflow): string | number => {
+      const ck = `${w.connectionId}:${w.id}`;
+      switch (sort.key) {
+        case "instance":
+          return w.connectionName.toLowerCase();
         case "name":
-          return a.name.localeCompare(b.name);
+          return w.name.toLowerCase();
+        case "runs":
+          return runCounts[ck] ?? 0;
+        case "failed":
+          return failedCounts[ck] ?? 0;
+        case "lastrun":
+          return ts(lastRunAt[ck]);
         case "updated":
-          return ts(b.updatedAt) - ts(a.updatedAt);
+          return ts(w.updatedAt);
         case "created":
-          return ts(b.createdAt) - ts(a.createdAt);
+          return ts(w.createdAt);
       }
+    };
+    return [...filtered].sort((a, b) => {
+      const va = val(a);
+      const vb = val(b);
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+      return a.name.localeCompare(b.name);
     });
-    return sorted;
-  }, [workflows, filter, sort, activeFilter, failedCounts, conn]);
+  }, [workflows, filter, activeFilter, sort, runCounts, failedCounts, lastRunAt]);
+
+  const onSort = (key: SortKey) =>
+    setSort((s) =>
+      s.key === key
+        ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: defaultDir(key) },
+    );
+
+  const loading = workflows === null;
 
   return (
-    <Modal open={open} onClose={onClose} title="Load workflow to test" wide>
-      <div className="flex gap-3 h-[468px] min-h-[200px]">
-        {/* Instances sidebar — every loaded n8n connection. Switching scopes
-            the workflow list to that instance. */}
-        <aside className="w-[170px] flex-shrink-0 overflow-y-auto thin-scroll border-r border-[var(--border)] pr-1.5">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--muted)] px-2 pt-1 pb-1.5">
-            n8n instances
-          </div>
-          {connections.connections.length === 0 && (
-            <div className="text-[11px] text-[var(--muted)] px-2 py-2 italic">
-              None configured.
-            </div>
-          )}
-          {connections.connections.map((c) => {
-            const selected = conn?.id === c.id;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setSelectedConnId(c.id)}
-                title={c.name}
-                className={`w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md mb-0.5 text-[12px] cursor-pointer border ${
-                  selected
-                    ? "bg-[color-mix(in_srgb,var(--n8n)_15%,transparent)] border-[var(--n8n)] text-[var(--text)] font-semibold"
-                    : "bg-transparent border-transparent text-[var(--text)] hover:bg-[var(--panel-soft)] hover:border-[var(--border)]"
-                }`}
-              >
-                <span className="flex-1 truncate">{c.name}</span>
-                {c.id === connections.activeId && (
-                  <span
-                    className="w-1.5 h-1.5 rounded-full bg-[var(--n8n)] flex-shrink-0"
-                    aria-hidden
-                    title="Active connection"
-                  />
-                )}
-              </button>
-            );
-          })}
-        </aside>
+    <Modal open={open} onClose={onClose} title="Load workflow to test" width={1180}>
+      <div className="flex flex-col h-[560px] min-h-[300px]">
+        <div className="flex flex-wrap gap-2 mb-3 items-center flex-shrink-0">
+          <input
+            type="text"
+            placeholder={loading ? "Loading…" : "Filter by name…"}
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            disabled={loading}
+            className="flex-1 min-w-[180px] px-[10px] py-[8px] text-[13px] rounded-[5px] border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--text)] outline-none focus:border-[var(--n8n)]"
+          />
+          <FunnelMenu
+            value={activeFilter}
+            onChange={(v) => setActiveFilter(v as ActiveFilter)}
+            options={[
+              { value: "active", label: "Active only" },
+              { value: "inactive", label: "Inactive only" },
+              { value: "all", label: "All workflows" },
+            ]}
+          />
+        </div>
 
-        {/* Right column: filter row + the selected instance's workflow list. */}
-        <div className="flex-1 min-w-0 flex flex-col">
-          {error && (
-            <div className="text-[13px] text-[var(--red-text)] bg-[var(--red-bg)] px-3 py-2 rounded mb-3">
-              {error}
+        <div className="flex-1 min-h-0 overflow-auto thin-scroll border border-[var(--border)] rounded-md">
+          <table className="w-full border-collapse text-[12px]">
+            <thead className="sticky top-0 z-10 bg-[var(--panel-soft)]">
+              <tr className="text-[var(--muted)]">
+                <Th label="Instance" k="instance" sort={sort} onSort={onSort} />
+                <Th label="Workflow" k="name" sort={sort} onSort={onSort} />
+                <Th label="Runs" k="runs" sort={sort} onSort={onSort} align="right" />
+                <Th label="Failed" k="failed" sort={sort} onSort={onSort} align="right" />
+                <Th label="Last run" k="lastrun" sort={sort} onSort={onSort} />
+                <Th label="Updated" k="updated" sort={sort} onSort={onSort} />
+                <Th label="Created" k="created" sort={sort} onSort={onSort} />
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((wf) => {
+                const ck = `${wf.connectionId}:${wf.id}`;
+                const runs = runCounts[ck] ?? 0;
+                const failed = failedCounts[ck] ?? 0;
+                const lastRun = lastRunAt[ck];
+                return (
+                  <tr
+                    key={ck}
+                    onClick={() => onPickFromConnection(wf.connectionId, wf.id, wf.name)}
+                    className="border-t border-[var(--border)] cursor-pointer hover:bg-[color-mix(in_srgb,var(--n8n)_8%,transparent)]"
+                  >
+                    <td className="px-3 py-2 text-[var(--muted)] whitespace-nowrap">
+                      {wf.connectionName}
+                    </td>
+                    <td className="px-3 py-2 max-w-[340px]">
+                      <div className="font-semibold text-[13px] truncate" title={wf.name}>
+                        {wf.name}
+                      </div>
+                      {!wf.active && (
+                        <span className="text-[10px] text-[var(--muted-2)] uppercase tracking-[0.5px]">
+                          inactive
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-[var(--muted)]">
+                      {runs || "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono">
+                      {failed > 0 ? (
+                        <span className="px-1.5 py-0.5 rounded-full bg-[var(--red-bg)] text-[var(--red-text)]">
+                          {failed}
+                        </span>
+                      ) : (
+                        <span className="text-[var(--muted-2)]">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--muted)] whitespace-nowrap font-mono">
+                      {lastRun ? fmtRelative(lastRun) : "never"}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--muted)] whitespace-nowrap font-mono">
+                      {wf.updatedAt ? fmtDate(wf.updatedAt) : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-[var(--muted)] whitespace-nowrap font-mono">
+                      {wf.createdAt ? fmtDate(wf.createdAt) : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {!loading && visible.length === 0 && (
+            <div className="text-[13px] text-[var(--muted)] px-2 py-6 text-center">
+              No workflows match.
             </div>
           )}
-          {!error && (
-            <div className="flex flex-wrap gap-2 mb-3 items-center">
-              <input
-                type="text"
-                placeholder={loading ? "Loading…" : "Filter by name…"}
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                disabled={loading || !workflows}
-                className="flex-1 min-w-[180px] px-[10px] py-[8px] text-[13px] rounded-[5px] border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--text)] outline-none focus:border-[var(--n8n)]"
-              />
-              <Select value={sort} onChange={(v) => setSort(v as Sort)}>
-                <option value="failed">Most failed</option>
-                <option value="name">Name (A→Z)</option>
-                <option value="updated">Recently updated</option>
-                <option value="created">Recently created</option>
-              </Select>
-              <FunnelMenu
-                value={activeFilter}
-                onChange={(v) => setActiveFilter(v as ActiveFilter)}
-                options={[
-                  { value: "active", label: "Active only" },
-                  { value: "inactive", label: "Inactive only" },
-                  { value: "all", label: "All workflows" },
-                ]}
-              />
-            </div>
-          )}
-          <div className="flex-1 min-h-0 overflow-y-auto thin-scroll">
-            {visible.map((wf) => {
-              const failed = conn ? (failedCounts[`${conn.id}:${wf.id}`] ?? 0) : 0;
-              return (
-                <button
-                  key={wf.id}
-                  type="button"
-                  onClick={() => conn && onPickFromConnection(conn.id, wf.id, wf.name)}
-                  className="w-full text-left flex items-center gap-3 px-3 py-[10px] rounded-md border border-[var(--border)] mb-[6px] cursor-pointer bg-transparent hover:border-[var(--n8n)] hover:bg-[color-mix(in_srgb,var(--n8n)_8%,transparent)] last:mb-0"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-[13px] truncate">{wf.name}</div>
-                    <div className="text-[11px] text-[var(--muted)] font-mono truncate">
-                      Last run:{" "}
-                      {conn && lastRunAt[`${conn.id}:${wf.id}`]
-                        ? fmtRelative(lastRunAt[`${conn.id}:${wf.id}`])
-                        : "never run"}
-                      {wf.updatedAt && <> | Updated {fmtDate(wf.updatedAt)}</>}
-                    </div>
-                  </div>
-                  {failed > 0 && (
-                    <span className="text-[11px] font-mono whitespace-nowrap px-1.5 py-0.5 rounded-full bg-[var(--red-bg)] text-[var(--red-text)]">
-                      {failed}× failed
-                    </span>
-                  )}
-                  <span className="text-[var(--muted-2)] text-[14px]">›</span>
-                </button>
-              );
-            })}
-            {!loading && !error && workflows && visible.length === 0 && (
-              <div className="text-[13px] text-[var(--muted)] px-2 py-4 text-center">
-                No workflows match.
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </Modal>
   );
 }
 
-function Select({
-  value,
-  onChange,
-  children,
+function Th({
+  label,
+  k,
+  sort,
+  onSort,
+  align,
 }: {
-  value: string;
-  onChange: (v: string) => void;
-  children: React.ReactNode;
+  label: string;
+  k: SortKey;
+  sort: { key: SortKey; dir: "asc" | "desc" };
+  onSort: (k: SortKey) => void;
+  align?: "right";
 }) {
+  const active = sort.key === k;
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="px-[10px] py-[8px] text-[13px] rounded-[5px] border border-[var(--border-strong)] bg-[var(--panel)] text-[var(--text)] outline-none focus:border-[var(--n8n)] cursor-pointer"
+    <th
+      onClick={() => onSort(k)}
+      className={`px-3 py-2 font-semibold uppercase tracking-[0.5px] text-[10px] cursor-pointer select-none whitespace-nowrap hover:text-[var(--text)] ${
+        align === "right" ? "text-right" : "text-left"
+      } ${active ? "text-[var(--text)]" : ""}`}
     >
-      {children}
-    </select>
+      <span className={`inline-flex items-center gap-1 ${align === "right" ? "flex-row-reverse" : ""}`}>
+        {label}
+        <span className="text-[var(--n8n)] w-2">{active ? (sort.dir === "asc" ? "▲" : "▼") : ""}</span>
+      </span>
+    </th>
   );
 }
 
@@ -337,6 +338,12 @@ function ts(d?: string): number {
   return d ? Date.parse(d) || 0 : 0;
 }
 
+function fmtDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 // "3 min ago", "2 hr ago", "5 days ago", "3 weeks ago" — for last-run times.
 function fmtRelative(iso: string): string {
   const t = Date.parse(iso);
@@ -355,10 +362,4 @@ function fmtRelative(iso: string): string {
   if (mo < 12) return `${mo} mon ago`;
   const yr = Math.round(mo / 12);
   return `${yr} yr ago`;
-}
-
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
