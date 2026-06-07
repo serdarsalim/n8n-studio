@@ -394,13 +394,7 @@ export default function Page() {
           <CompactNode
             color="blue"
             icon={<Image src="/json-icon.png" alt="json" width={20} height={20} className="invert brightness-200" />}
-            label={
-              inputText
-                ? execution?.startedAt
-                  ? `${fmtRelative(execution.startedAt)} | ${fmtExecStarted(execution.startedAt)}`
-                  : "Custom JSON input"
-                : "No input loaded"
-            }
+            label={inputText ? "Custom JSON input" : "No input loaded"}
             onClick={() => setModal("input")}
           />
           <CompactArrow />
@@ -439,6 +433,14 @@ export default function Page() {
             label={verdict?.label ?? "Awaiting run"}
             onClick={() => workflow && setModal("executions")}
           />
+          {execution?.startedAt && (
+            <span
+              className="text-[12px] text-[var(--muted)] whitespace-nowrap"
+              title={fmtExecStarted(execution.startedAt)}
+            >
+              Last run: {fmtRelative(execution.startedAt)}
+            </span>
+          )}
           {execution && (
             <CopyExecutionButton execution={execution} />
           )}
@@ -736,23 +738,24 @@ function fmtExecStarted(iso: string): string {
   return `${date}, ${time}`;
 }
 
-// "3m ago", "2h ago", "5d ago" — collapses to "just now" under 60s and to
-// "Xmo" / "Xy" past a month so the label stays single-token short.
+// "3 min ago", "2 hr ago", "5 day ago" — collapses to "just now" under 60s
+// and to "X mon" / "X yr" past a month. Uses 3-letter-ish units so minutes
+// ("min") never read as months ("mon").
 function fmtRelative(iso: string): string {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return iso;
   const diffSec = Math.max(0, Math.round((Date.now() - t) / 1000));
   if (diffSec < 60) return "just now";
   const min = Math.round(diffSec / 60);
-  if (min < 60) return `${min}m ago`;
+  if (min < 60) return `${min} min ago`;
   const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
+  if (hr < 24) return `${hr} hr ago`;
   const day = Math.round(hr / 24);
-  if (day < 30) return `${day}d ago`;
+  if (day < 30) return `${day} day ago`;
   const mo = Math.round(day / 30);
-  if (mo < 12) return `${mo}mo ago`;
+  if (mo < 12) return `${mo} mon ago`;
   const yr = Math.round(mo / 12);
-  return `${yr}y ago`;
+  return `${yr} yr ago`;
 }
 
 function CheckSvg({ small }: { small?: boolean } = {}) {
