@@ -265,7 +265,7 @@ export function WorkflowSidebar({
 
   if (collapsed) {
     return (
-      <aside className="flex-shrink-0 w-9 border-r border-[var(--border)] bg-[var(--panel-soft)] flex flex-col items-center pt-2 sticky top-0 self-start h-screen max-h-screen overflow-hidden">
+      <aside className="app-pane flex-shrink-0 w-9 md:rounded-xl md:border md:border-[var(--border)] flex flex-col items-center pt-2 self-stretch h-full overflow-hidden">
         <button
           type="button"
           onClick={toggle}
@@ -306,10 +306,10 @@ export function WorkflowSidebar({
 
   return (
     <aside
-      className="flex-shrink-0 border-r border-[var(--border)] bg-[var(--panel-soft)] flex flex-col sticky top-0 self-start h-screen max-h-screen overflow-hidden relative"
+      className="app-pane flex-shrink-0 md:rounded-xl md:border md:border-[var(--border)] flex flex-col self-stretch h-full overflow-hidden relative"
       style={{ width }}
     >
-      <div className="pl-5 pr-3 py-2 flex items-center gap-2">
+      <div className="h-14 flex-shrink-0 pl-5 pr-3 flex items-center gap-2">
         <div className="flex-1">
           <span className="text-[13px] font-semibold tracking-[-0.01em] bg-gradient-to-r from-[var(--n8n)] to-[#7c3aed] bg-clip-text text-transparent">
             n8n studio

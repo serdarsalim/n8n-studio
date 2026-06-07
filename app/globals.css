@@ -25,6 +25,9 @@
   --selected-border: #b8860b;
   --dot: #d6d2cb;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* Recessed surface the floating panels (sidebar + content card) sit on.
+     Aliases --canvas so we don't fork the token vocabulary. */
+  --pane: var(--canvas);
 }
 
 html.dark {
@@ -94,6 +97,32 @@ html {
   background:
     radial-gradient(circle, var(--dot) 1px, transparent 1px) 0 0 / 18px 18px,
     var(--canvas);
+}
+
+/* Floating sidebar surface — a faint vertical grade that separates the
+   panel from the recessed --pane background by contrast, not a hard line.
+   Flips with html.dark. Ported from the Nudge/time-off app shell. */
+.app-pane {
+  background: linear-gradient(180deg, #fbfbfa 0%, #f1f0ec 100%);
+}
+html.dark .app-pane {
+  background: linear-gradient(180deg, #1d1d21 0%, #161619 100%);
+}
+
+/* Scoped thin scrollbar for in-card scroll regions. */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.thin-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 .font-mono { font-family: var(--mono); }

@@ -359,7 +359,7 @@ export default function Page() {
   };
 
   return (
-    <main className="flex items-stretch min-h-screen">
+    <main className="flex h-[100dvh] overflow-hidden bg-[var(--pane)] md:gap-2 md:p-2">
       <WorkflowSidebar
         settings={settings}
         connections={connections}
@@ -387,8 +387,8 @@ export default function Page() {
         error={poller.error}
         onRefresh={poller.refresh}
       />
-      <div className="flex-1 min-w-0 flex flex-col bg-[var(--panel)]">
-      <header className="px-4 py-2 bg-[var(--panel)] border-b border-[var(--border)] flex items-center gap-4 sticky top-0 z-20">
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--panel)] overflow-hidden md:rounded-xl md:border md:border-[var(--border)]">
+      <header className="flex-shrink-0 h-14 px-4 bg-[var(--panel)] border-b border-[var(--border)] flex items-center gap-4 z-20">
         <div className="flex-1 flex items-center justify-center gap-1 min-w-0">
           <CompactNode
             color="blue"
@@ -448,7 +448,7 @@ export default function Page() {
       </header>
 
 
-      <section className="px-6 py-5 bg-[var(--panel)] flex-1">
+      <section className="thin-scroll flex-1 min-h-0 overflow-y-auto px-6 py-5 bg-[var(--panel)]">
         {runError && (
           <div className="mb-4 text-[13px] text-[var(--red-text)] bg-[var(--red-bg)] px-3 py-2 rounded">
             {runError}
@@ -459,7 +459,7 @@ export default function Page() {
             <>
               <aside
                 id="graph-pane"
-                className="flex-shrink-0 sticky top-[60px] self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2 relative"
+                className="flex-shrink-0 sticky top-0 self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2 relative"
                 style={{ width: graphPaneWidth }}
               >
                 {(execution || settings.n8nUrl) && (
@@ -492,10 +492,9 @@ export default function Page() {
                     localStorage.setItem("n8n-ft.graphPane.width", "560");
                   } catch {}
                 }}
-                className={`flex-shrink-0 sticky top-[60px] self-stretch w-[6px] -mx-[3px] cursor-col-resize rounded-full z-10 ${
+                className={`flex-shrink-0 sticky top-0 self-stretch w-[6px] -mx-[3px] cursor-col-resize rounded-full z-10 ${
                   graphDragging ? "bg-[var(--n8n)]/40" : "hover:bg-[var(--n8n)]/30"
                 }`}
-                style={{ minHeight: "calc(100vh - 6rem)" }}
               />
             </>
           )}
