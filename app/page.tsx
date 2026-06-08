@@ -535,6 +535,7 @@ export default function Page() {
         }`}
       >
         <WorkflowPickerMobile
+          hasConnections={connections.connections.length > 0}
           workflows={poller.workflows}
           executions={poller.executions}
           failures={failures}

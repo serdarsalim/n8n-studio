@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { TaggedWorkflow, TaggedExecution } from "@/lib/use-n8n-poller";
 import type { FailedExecution } from "@/components/failure-alerts";
@@ -8,6 +9,7 @@ import type { FailedExecution } from "@/components/failure-alerts";
 // on phones and let this be the "Load" tab: group rows under instance headers,
 // keep only the columns a thumb-sized screen can show — name, last run, failed.
 export function WorkflowPickerMobile({
+  hasConnections,
   workflows,
   executions,
   failures,
@@ -15,6 +17,9 @@ export function WorkflowPickerMobile({
   currentId,
   onPick,
 }: {
+  // No connection saved yet → show onboarding instead of the (empty) list.
+  // The sidebar's onboarding is hidden on mobile, so this is the only entry.
+  hasConnections: boolean;
   workflows: TaggedWorkflow[] | null;
   executions: TaggedExecution[];
   failures: FailedExecution[];
@@ -71,6 +76,31 @@ export function WorkflowPickerMobile({
 
   const loading = workflows === null;
   const empty = !loading && groups.every((g) => g.rows.length === 0);
+
+  if (!hasConnections) {
+    return (
+      <div className="flex flex-col h-full min-h-0 items-center justify-center text-center px-6">
+        <div className="text-[24px] mb-2">👋</div>
+        <div className="text-[16px] font-semibold text-[var(--text)] mb-1.5">
+          Welcome to n8n studio
+        </div>
+        <p className="text-[13px] text-[var(--muted)] leading-relaxed max-w-[300px] mb-4">
+          Add your n8n URL and API key in Settings, then pick a workflow here to
+          load and test it.
+        </p>
+        <Link
+          href="/settings"
+          className="inline-flex items-center justify-center gap-1.5 h-11 px-6 rounded-md bg-[var(--n8n)] text-white text-[14px] font-semibold hover:bg-[var(--n8n-dark)] no-underline"
+        >
+          Open Settings
+        </Link>
+        <p className="text-[12px] text-[var(--muted-2)] leading-relaxed max-w-[280px] mt-6">
+          Heads up — n8n studio is built for the desktop. The graph and node
+          inspector need room to breathe, so it's best on a bigger screen.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full min-h-0">
