@@ -450,8 +450,15 @@ export default function Page() {
         onRefresh={poller.refresh}
       />
       <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--panel)] overflow-hidden md:rounded-xl md:border md:border-[var(--border)]">
-      <header className="flex-shrink-0 min-h-14 h-auto md:h-14 py-1.5 md:py-0 px-4 bg-[var(--panel)] flex items-center gap-4 z-20">
-        <div className="flex-1 basis-0 min-w-0 flex flex-col justify-center">
+      <header className="flex-shrink-0 min-h-14 h-auto md:h-14 py-1.5 md:py-0 px-4 bg-[var(--panel)] flex flex-col md:flex-row md:items-center gap-1.5 md:gap-4 z-20">
+        {/* Title — desktop: left column. Mobile: a row *below* the node row, and
+            hidden entirely on the Load tab (you pick the workflow there, so the
+            header echoing it back is just noise). */}
+        <div
+          className={`order-2 md:order-1 md:flex-1 md:basis-0 min-w-0 flex-col justify-center ${
+            mobileTab === "load" ? "hidden md:flex" : "flex"
+          }`}
+        >
           {workflow && (
             <>
               <span
@@ -471,7 +478,11 @@ export default function Page() {
             </>
           )}
         </div>
-        <div className="flex-none flex items-start md:items-center justify-center gap-1 min-w-0">
+        {/* Node row + Menu. On desktop md:contents dissolves this wrapper so the
+            two halves become direct header columns (nodes center, menu right);
+            on mobile it stays a single flex row sitting above the title. */}
+        <div className="order-1 md:contents flex w-full items-start md:items-center gap-1">
+        <div className="md:order-2 flex-1 md:flex-none flex items-start md:items-center justify-center gap-1 min-w-0">
           <CompactNode
             color="blue"
             icon={<Image src="/json-icon.png" alt="json" width={20} height={20} className="invert brightness-200" />}
@@ -515,13 +526,14 @@ export default function Page() {
             onClick={() => workflow && setModal("executions")}
           />
         </div>
-        <div className="flex-1 basis-0 flex items-center justify-end">
+        <div className="md:order-3 md:flex-1 md:basis-0 flex items-center justify-end mt-0.5 md:mt-0">
           <HeaderMenu
             dark={dark}
             onToggleTheme={toggleTheme}
             failedCount={failedWorkflowCount(failures)}
             onOpenFailures={() => setShowFailures(true)}
           />
+        </div>
         </div>
       </header>
 
