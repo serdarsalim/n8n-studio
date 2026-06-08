@@ -73,8 +73,8 @@ export function WorkflowPickerMobile({
   const empty = !loading && groups.every((g) => g.rows.length === 0);
 
   return (
-    <div className="flex flex-col">
-      <div className="flex gap-2 mb-3 items-center sticky top-0 z-20 bg-[var(--panel)] py-1">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex gap-2 mb-3 items-center flex-shrink-0">
         <input
           type="text"
           placeholder={loading ? "Loading…" : "Filter by name…"}
@@ -96,7 +96,7 @@ export function WorkflowPickerMobile({
         </button>
       </div>
 
-      <div className="-mx-1 px-1">
+      <div className="flex-1 min-h-0 overflow-y-auto thin-scroll -mx-1 px-1">
         {empty && (
           <div className="text-[13px] text-[var(--muted)] px-2 py-8 text-center">
             {filter ? "No workflows match." : "No workflows found."}
@@ -105,7 +105,7 @@ export function WorkflowPickerMobile({
         {groups.map((g) =>
           g.rows.length === 0 ? null : (
             <div key={g.connId} className="mb-4">
-              <div className="px-1 pb-1.5 pt-0.5">
+              <div className="sticky top-0 z-10 bg-[var(--panel)] px-1 pb-1.5 pt-1">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.6px] text-[var(--muted)]">
                   {g.name}
                 </span>

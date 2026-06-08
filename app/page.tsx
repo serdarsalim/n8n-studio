@@ -526,22 +526,32 @@ export default function Page() {
       </header>
 
 
-      <section className="thin-scroll flex-1 min-h-0 overflow-y-auto px-6 py-5 bg-[var(--panel)]">
+      {/* Load tab (mobile only): its own bounded scroll box so the filter and
+          instance headers pin cleanly instead of bleeding through the page
+          scroll the way they did when nested inside <section>. */}
+      <div
+        className={`md:hidden flex-1 min-h-0 px-4 pt-3 pb-1 ${
+          mobileTab === "load" ? "flex flex-col" : "hidden"
+        }`}
+      >
+        <WorkflowPickerMobile
+          workflows={poller.workflows}
+          executions={poller.executions}
+          failures={failures}
+          lastRunAt={poller.lastRunAt}
+          currentId={workflow?.id ?? null}
+          onPick={onPickMobile}
+        />
+      </div>
+
+      <section
+        className={`thin-scroll flex-1 min-h-0 overflow-y-auto px-6 py-5 bg-[var(--panel)] ${
+          mobileTab === "load" ? "hidden md:block" : "block"
+        }`}
+      >
         {runError && (
           <div className="mb-4 text-[13px] text-[var(--red-text)] bg-[var(--red-bg)] px-3 py-2 rounded">
             {runError}
-          </div>
-        )}
-        {mobileTab === "load" && (
-          <div className="md:hidden">
-            <WorkflowPickerMobile
-              workflows={poller.workflows}
-              executions={poller.executions}
-              failures={failures}
-              lastRunAt={poller.lastRunAt}
-              currentId={workflow?.id ?? null}
-              onPick={onPickMobile}
-            />
           </div>
         )}
         {mobileTab === "workflow" && !(workflow && checks.length > 0) && (
