@@ -734,7 +734,7 @@ function HeaderMenu({
         aria-label="Menu"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="h-8 pl-2.5 pr-2.5 text-[12px] font-semibold rounded-md border border-[var(--border-strong)] bg-[var(--panel-soft)] text-[var(--text)] hover:bg-[var(--bg)] hover:border-[var(--n8n)] flex items-center gap-1.5 cursor-pointer"
+        className="h-8 w-8 justify-center md:w-auto md:justify-start px-0 md:pl-2.5 md:pr-2.5 text-[12px] font-semibold rounded-md border border-[var(--border-strong)] bg-[var(--panel-soft)] text-[var(--text)] hover:bg-[var(--bg)] hover:border-[var(--n8n)] flex items-center gap-1.5 cursor-pointer"
       >
         <svg
           viewBox="0 0 24 24"
@@ -750,7 +750,7 @@ function HeaderMenu({
           <line x1="3" y1="12" x2="21" y2="12" />
           <line x1="3" y1="18" x2="21" y2="18" />
         </svg>
-        <span>Menu</span>
+        <span className="hidden md:inline">Menu</span>
         <svg
           viewBox="0 0 24 24"
           fill="none"
@@ -758,7 +758,7 @@ function HeaderMenu({
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className={`w-3 h-3 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`}
+          className={`hidden md:block w-3 h-3 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`}
           aria-hidden
         >
           <polyline points="6 9 12 15 18 9" />
