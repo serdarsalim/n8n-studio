@@ -310,7 +310,7 @@ export function WorkflowSidebar({
 
   if (collapsed) {
     return (
-      <aside className="app-pane flex-shrink-0 w-9 md:rounded-xl md:border md:border-[var(--border)] flex flex-col items-center pt-2 self-stretch h-full overflow-hidden">
+      <aside className="app-pane flex-shrink-0 w-9 md:rounded-xl md:border md:border-[var(--border)] hidden md:flex flex-col items-center pt-2 self-stretch h-full overflow-hidden">
         <button
           type="button"
           onClick={toggle}
@@ -332,7 +332,7 @@ export function WorkflowSidebar({
 
   return (
     <aside
-      className="app-pane flex-shrink-0 md:rounded-xl md:border md:border-[var(--border)] flex flex-col self-stretch h-full overflow-hidden relative"
+      className="app-pane flex-shrink-0 md:rounded-xl md:border md:border-[var(--border)] hidden md:flex flex-col self-stretch h-full overflow-hidden relative"
       style={{ width }}
     >
       <div className="h-14 flex-shrink-0 pl-5 pr-3 flex items-center gap-2">

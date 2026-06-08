@@ -10,6 +10,7 @@ import { InputModal } from "@/components/modals/input-modal";
 import { Btn } from "@/components/modals/modal";
 import { WorkflowModal } from "@/components/modals/workflow-modal";
 import { WorkflowSidebar } from "@/components/workflow-sidebar";
+import { WorkflowPickerMobile } from "@/components/workflow-picker-mobile";
 import {
   activeSettings,
   apiGetExecution,
@@ -52,6 +53,8 @@ export default function Page() {
   const settings = useMemo(() => activeSettings(connections), [connections]);
   const [dark, setDark] = useState(false);
   const [modal, setModal] = useState<Modal>(null);
+  // Mobile-only 3-tab layout (sidebar is hidden below md). Desktop ignores this.
+  const [mobileTab, setMobileTab] = useState<"load" | "workflow" | "nodes">("load");
   const [showFailures, setShowFailures] = useState(false);
   const [failureNotifications, setFailureNotifications] = useState<boolean>(
     DEFAULT_PREFS.failureNotifications,
@@ -358,6 +361,17 @@ export default function Page() {
     [connections, onPickWorkflow],
   );
 
+  // Mobile Load tab: pick the workflow, then jump straight to the Workflow tab
+  // so the selection feels like it "took" instead of stranding the user on the
+  // picker.
+  const onPickMobile = useCallback(
+    (connectionId: string, workflowId: string, workflowName: string) => {
+      void onPickFromConnection(connectionId, workflowId, workflowName);
+      setMobileTab("workflow");
+    },
+    [onPickFromConnection],
+  );
+
   // Load a specific failed execution in-app: switch to its connection, load
   // the workflow, then load that exact execution (not the latest). Closes the
   // failures modal.
@@ -518,12 +532,29 @@ export default function Page() {
             {runError}
           </div>
         )}
-        <div className="flex gap-3 items-start">
+        {mobileTab === "load" && (
+          <div className="md:hidden">
+            <WorkflowPickerMobile
+              workflows={poller.workflows}
+              executions={poller.executions}
+              failures={failures}
+              lastRunAt={poller.lastRunAt}
+              currentId={workflow?.id ?? null}
+              onPick={onPickMobile}
+            />
+          </div>
+        )}
+        {mobileTab === "workflow" && !(workflow && checks.length > 0) && (
+          <div className="md:hidden text-[13px] text-[var(--muted)] px-2 py-10 text-center">
+            Load a workflow to see its graph.
+          </div>
+        )}
+        <div className={`${mobileTab === "load" ? "hidden md:flex" : "flex"} gap-3 items-start`}>
           {workflow && checks.length > 0 && (
             <>
               <aside
                 id="graph-pane"
-                className="flex-shrink-0 sticky top-0 self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2 relative"
+                className={`flex-shrink-0 sticky top-0 self-start border border-[var(--border)] rounded-md bg-[var(--panel-soft)] p-2 relative max-md:!w-full max-md:overflow-x-auto ${mobileTab === "workflow" ? "" : "hidden"} md:block`}
                 style={{ width: graphPaneWidth }}
               >
                 {(settings.n8nUrl || execution) && (
@@ -560,13 +591,13 @@ export default function Page() {
                     localStorage.setItem("n8n-ft.graphPane.width", "560");
                   } catch {}
                 }}
-                className={`flex-shrink-0 sticky top-0 self-stretch w-[6px] -mx-[3px] cursor-col-resize rounded-full z-10 ${
+                className={`hidden md:block flex-shrink-0 sticky top-0 self-stretch w-[6px] -mx-[3px] cursor-col-resize rounded-full z-10 ${
                   graphDragging ? "bg-[var(--n8n)]/40" : "hover:bg-[var(--n8n)]/30"
                 }`}
               />
             </>
           )}
-          <div className="flex-1 min-w-0">
+          <div className={`flex-1 min-w-0 ${mobileTab === "nodes" ? "" : "hidden"} md:block`}>
             <NodeCheckList
               checks={checks}
               preRun={!execution}
@@ -587,6 +618,30 @@ export default function Page() {
           </div>
         </div>
       </section>
+
+      <nav className="md:hidden flex-shrink-0 flex border-t border-[var(--border)] bg-[var(--panel)]">
+        {([
+          { id: "load", label: "Load" },
+          { id: "workflow", label: "Workflow" },
+          { id: "nodes", label: "Nodes" },
+        ] as const).map((t) => {
+          const active = mobileTab === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setMobileTab(t.id)}
+              className={`flex-1 py-3 text-[12px] font-semibold tracking-[0.2px] border-t-2 -mt-px ${
+                active
+                  ? "text-[var(--n8n)] border-[var(--n8n)] bg-[color-mix(in_srgb,var(--n8n)_6%,transparent)]"
+                  : "text-[var(--muted)] border-transparent"
+              }`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </nav>
       </div>
 
       <FailuresModal
