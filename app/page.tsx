@@ -450,7 +450,7 @@ export default function Page() {
         onRefresh={poller.refresh}
       />
       <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--panel)] overflow-hidden md:rounded-xl md:border md:border-[var(--border)]">
-      <header className="flex-shrink-0 h-14 px-4 bg-[var(--panel)] flex items-center gap-4 z-20">
+      <header className="flex-shrink-0 min-h-14 h-auto md:h-14 py-1.5 md:py-0 px-4 bg-[var(--panel)] flex items-center gap-4 z-20">
         <div className="flex-1 basis-0 min-w-0 flex flex-col justify-center">
           {workflow && (
             <>
@@ -471,7 +471,7 @@ export default function Page() {
             </>
           )}
         </div>
-        <div className="flex-none flex items-center justify-center gap-1 min-w-0">
+        <div className="flex-none flex items-start md:items-center justify-center gap-1 min-w-0">
           <CompactNode
             color="blue"
             icon={<Image src="/json-icon.png" alt="json" width={20} height={20} className="invert brightness-200" />}
@@ -1012,12 +1012,16 @@ function CompactNode({
       type="button"
       onClick={onClick}
       aria-label={ariaLabel ?? label}
-      className={`flex items-center gap-2 px-2 py-1 rounded-md hover:bg-[var(--bg)] cursor-pointer min-w-0 ${wide ? "max-w-[560px]" : "max-w-[260px]"}`}
+      className={`flex flex-col items-center gap-1 md:flex-row md:gap-2 px-1.5 py-1 md:px-2 rounded-md hover:bg-[var(--bg)] cursor-pointer min-w-0 ${wide ? "max-w-[80px] md:max-w-[560px]" : "max-w-[72px] md:max-w-[260px]"}`}
     >
       <span className={`w-9 h-9 rounded-lg border flex items-center justify-center flex-shrink-0 ${bg} ${ring}`}>
         {icon}
       </span>
-      {label && <span className="text-[12px] font-medium truncate">{label}</span>}
+      {label && (
+        <span className="text-[10px] md:text-[12px] font-medium text-center leading-tight md:truncate">
+          {label}
+        </span>
+      )}
     </button>
   );
 }
@@ -1031,7 +1035,7 @@ function CompactArrow() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="w-4 h-4 flex-shrink-0"
+      className="w-4 h-4 flex-shrink-0 mt-2.5 md:mt-0 self-start md:self-auto"
       aria-hidden
     >
       <line x1="4" y1="12" x2="20" y2="12" />
