@@ -80,10 +80,10 @@ export function WorkflowPickerMobile({
   if (!hasConnections) {
     return (
       <div className="flex flex-col h-full min-h-0 items-center justify-center text-center px-6">
-        {/* Twemoji waving hand, self-hosted — this app never hot-links assets.
+        {/* Twemoji raising-hand, self-hosted — this app never hot-links assets.
             Plain <img>: next/image would need dangerouslyAllowSVG for an SVG. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/twemoji/1f44b.svg" alt="" aria-hidden className="w-8 h-8 mb-2" />
+        <img src="/twemoji/1f64b-1f3fb-200d-2642-fe0f.svg" alt="" aria-hidden className="w-8 h-8 mb-2" />
         <div className="text-[16px] font-semibold text-[var(--text)] mb-1.5">
           Welcome to n8n studio
         </div>
